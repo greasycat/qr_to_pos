@@ -1,0 +1,18 @@
+[project]
+name = "qr-to-pos"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "matplotlib>=3.10.8",
+    "numpy>=2.4.1",
+    "opencv-python>=4.13.0.90",
+    "pybind11-stubgen>=2.5.5",
+    "pyrealsense2>=2.56.5.9235",
+    "qrdet>=2.5",
+]
+
+
+[tool.ty.environment]
+extra-paths = ["./stubs"]
