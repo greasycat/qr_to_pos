@@ -24,6 +24,7 @@ class QRCode:
     data: str
     bbox: tuple[int, int, int, int] | None = None
     confidence: float | None = None
+    decoded: str | None = None
 
 
 class QRCodeProcessor:
