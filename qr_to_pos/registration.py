@@ -368,6 +368,23 @@ def load_registration(path: str) -> np.ndarray:
     return np.load(path)
 
 
+def transform_points(points: np.ndarray, H: np.ndarray) -> np.ndarray:
+    """Project Nx2 color-frame points into depth-frame coordinates via homography."""
+    src = np.asarray(points, dtype=np.float64).reshape(-1, 1, 2)
+    dst = cv2.perspectiveTransform(src, H)
+    return dst.reshape(-1, 2)
+
+
+def transform_bbox_to_depth(bbox: list[float] | tuple[float, float, float, float], H: np.ndarray) -> np.ndarray:
+    """Project bbox corners [TL, TR, BR, BL] from color pixels into depth pixels."""
+    x1, y1, x2, y2 = map(float, bbox)
+    corners = np.array(
+        [[x1, y1], [x2, y1], [x2, y2], [x1, y2]],
+        dtype=np.float64,
+    )
+    return transform_points(corners, H)
+
+
 def map_bbox_to_depth(
     bbox: list[float], H: np.ndarray, depth: np.ndarray
 ) -> float | None:
@@ -378,10 +395,9 @@ def map_bbox_to_depth(
     """
     cx = (bbox[0] + bbox[2]) / 2.0
     cy = (bbox[1] + bbox[3]) / 2.0
-    src = np.array([[[cx, cy]]], dtype=np.float64)
-    dst = cv2.perspectiveTransform(src, H)
-    col = int(round(float(dst[0, 0, 0])))
-    row = int(round(float(dst[0, 0, 1])))
+    dst = transform_points(np.array([[cx, cy]], dtype=np.float64), H)
+    col = int(round(float(dst[0, 0])))
+    row = int(round(float(dst[0, 1])))
     h, w = depth.shape
     if row < 0 or row >= h or col < 0 or col >= w:
         return None

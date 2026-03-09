@@ -311,6 +311,17 @@
                   <canvas id="det-result-canvas" style="display:none"></canvas>
                 </div>
                 <div class="surface">
+                  <h3>Projected Depth BBox</h3>
+                  <p>Blue polygons show the server-returned `depth_bbox` projected into the registered depth frame.</p>
+                  <div class="placeholder" id="det-depth-placeholder">Waiting for detection result and depth reference.</div>
+                  <canvas id="det-depth-canvas" style="display:none"></canvas>
+                </div>
+                <div class="surface">
+                  <h3>Queried Homography</h3>
+                  <p>This is the color-to-depth matrix returned by the detection request.</p>
+                  <pre class="matrix" id="det-matrix">No homography queried yet.</pre>
+                </div>
+                <div class="surface">
                   <h3>Decoded QR Codes</h3>
                   <div class="placeholder" id="det-table-placeholder">No detections yet.</div>
                   <table id="det-table" style="display:none">
@@ -320,6 +331,7 @@
                         <th>Decoded</th>
                         <th>Confidence</th>
                         <th>BBox</th>
+                        <th>Depth BBox</th>
                       </tr>
                     </thead>
                     <tbody id="det-tbody"></tbody>
@@ -380,6 +392,7 @@
   <script>
     const TEST_IMAGE_URL = {{ test_image_url|tojson }};
     const REGISTRATION_SAMPLE_URL = {{ registration_sample_url|tojson }};
+    const REGISTRATION_DEPTH_TEXT_URL = {{ registration_depth_text_url|tojson }};
     const CORNER_LABELS = ['TL', 'TR', 'BR', 'BL'];
     const CORNER_COLORS = ['#38bdf8', '#f59e0b', '#ef4444', '#22c55e'];
 
@@ -389,6 +402,7 @@
     let updatingRegistration = false;
 
     let detectionImage = null;
+    let detectionDepthRaster = null;
 
     const registrationState = {
       colorImage: null,
@@ -484,6 +498,20 @@
         img.onerror = () => reject(new Error(`Failed to load image: ${url}`));
         img.src = url;
       });
+    }
+
+    async function ensureDetectionDepthRaster() {
+      if (detectionDepthRaster) {
+        return detectionDepthRaster;
+      }
+      const depthText = await fetch(REGISTRATION_DEPTH_TEXT_URL).then((resp) => {
+        if (!resp.ok) {
+          throw new Error('Failed to load detection depth reference.');
+        }
+        return resp.text();
+      });
+      detectionDepthRaster = parseDepthText(depthText);
+      return detectionDepthRaster;
     }
 
     function fileToDataUrl(file) {
@@ -584,6 +612,50 @@
       canvas.style.display = 'block';
     }
 
+    function renderDetectionDepthCanvas(detections) {
+      const canvas = $('det-depth-canvas');
+      const placeholder = $('det-depth-placeholder');
+      const ctx = canvas.getContext('2d');
+
+      if (!detectionDepthRaster) {
+        canvas.style.display = 'none';
+        placeholder.textContent = 'Depth reference is unavailable.';
+        placeholder.style.display = 'flex';
+        return;
+      }
+
+      const rasterCanvas = depthRasterToCanvas(detectionDepthRaster);
+      canvas.width = rasterCanvas.width;
+      canvas.height = rasterCanvas.height;
+      ctx.drawImage(rasterCanvas, 0, 0);
+
+      ctx.lineWidth = Math.max(2, Math.round(canvas.width / 400));
+      ctx.font = `bold ${Math.max(14, Math.round(canvas.width / 70))}px monospace`;
+
+      detections.forEach((det, index) => {
+        if (!det.depth_bbox || det.depth_bbox.length !== 4) return;
+        const points = det.depth_bbox;
+
+        ctx.beginPath();
+        ctx.strokeStyle = '#2563eb';
+        ctx.fillStyle = 'rgba(37, 99, 235, 0.14)';
+        ctx.moveTo(points[0][0], points[0][1]);
+        for (let i = 1; i < points.length; i += 1) {
+          ctx.lineTo(points[i][0], points[i][1]);
+        }
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        const label = det.decoded || `QR ${index + 1}`;
+        ctx.fillStyle = '#dbeafe';
+        ctx.fillText(label, points[0][0] + 6, Math.max(18, points[0][1] - 6));
+      });
+
+      placeholder.style.display = 'none';
+      canvas.style.display = 'block';
+    }
+
     function renderDetectionTable(detections) {
       const table = $('det-table');
       const tbody = $('det-tbody');
@@ -616,7 +688,12 @@
         const bbox = document.createElement('td');
         bbox.textContent = det.bbox ? det.bbox.join(', ') : '-';
 
-        row.append(idx, decoded, confidence, bbox);
+        const depthBbox = document.createElement('td');
+        depthBbox.textContent = det.depth_bbox
+          ? det.depth_bbox.map((point) => `(${Number(point[0]).toFixed(1)}, ${Number(point[1]).toFixed(1)})`).join(' ')
+          : '-';
+
+        row.append(idx, decoded, confidence, bbox, depthBbox);
         tbody.appendChild(row);
       });
 
@@ -631,7 +708,9 @@
       $('stat-count').textContent = data.count ?? 0;
       $('stat-time').textContent = data.processing_time != null ? `${Number(data.processing_time).toFixed(3)}s` : '-';
       renderDetectionCanvas(data.detections || []);
+      renderDetectionDepthCanvas(data.detections || []);
       renderDetectionTable(data.detections || []);
+      $('det-matrix').textContent = data.homography ? formatMatrix(data.homography) : 'No saved homography on server.';
       setSectionStatus('det-status', `Detection finished with ${data.count ?? 0} result(s).`, 'success');
     }
 
@@ -1045,6 +1124,9 @@
 
     attachCornerEditor('reg-color-canvas', 'color');
     attachCornerEditor('reg-depth-canvas', 'depth');
+    void ensureDetectionDepthRaster().catch((error) => {
+      $('det-depth-placeholder').textContent = error.message;
+    });
     updateActionButtons();
   </script>
 </body>

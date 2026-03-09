@@ -18,7 +18,9 @@ from .registration import (
     compute_homography,
     detect_box_corners_color,
     detect_box_corners_depth,
+    load_registration,
     save_registration,
+    transform_bbox_to_depth,
 )
 
 _DEFAULT_REGISTRATION_PATH = (
@@ -101,13 +103,40 @@ class DetectionServer:
             return None
         return [[float(x), float(y)] for x, y in pts]
 
+    def _serialize_matrix(self, matrix: np.ndarray | None) -> list[list[float]] | None:
+        if matrix is None:
+            return None
+        return [[float(value) for value in row] for row in matrix]
+
+    def _load_registration_matrix(self) -> np.ndarray | None:
+        if not self.registration_path.exists():
+            return None
+        return load_registration(str(self.registration_path))
+
+    def _serialize_detection(
+        self,
+        qr: QRCode,
+        homography: np.ndarray | None,
+    ) -> dict[str, Any]:
+        detection = asdict(qr)
+        serialized_homography = self._serialize_matrix(homography)
+        detection["homography"] = serialized_homography
+        detection["depth_bbox"] = None
+        if homography is not None and qr.bbox is not None:
+            detection["depth_bbox"] = self._serialize_points(
+                transform_bbox_to_depth(list(qr.bbox), homography)
+            )
+        return detection
+
     def detect_response(self, image: np.ndarray) -> dict[str, Any]:
         start = time.perf_counter()
         qr_codes = self.detect(image)
         processing_time = time.perf_counter() - start
+        homography = self._load_registration_matrix()
         return {
             "action": "detect",
-            "detections": [asdict(qr) for qr in qr_codes],
+            "homography": self._serialize_matrix(homography),
+            "detections": [self._serialize_detection(qr, homography) for qr in qr_codes],
             "count": len(qr_codes),
             "processing_time": round(processing_time, 4),
         }

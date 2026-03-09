@@ -15,6 +15,7 @@ def index():
         default_ws_url="ws://localhost:8765",
         test_image_url=url_for("test_image"),
         registration_sample_url=url_for("registration_sample"),
+        registration_depth_text_url=url_for("registration_depth_text"),
     )
 
 

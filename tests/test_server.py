@@ -30,10 +30,15 @@ class _DummyDecode:
 
 
 @pytest.fixture()
-def stubbed_server(monkeypatch):
+def stubbed_server(monkeypatch, tmp_path):
     monkeypatch.setattr("qr_to_pos.server.QRDetector", lambda model_size="s": _DummyDetector())
     monkeypatch.setattr("qr_to_pos.server.pyzbar_decode", lambda _crop: [_DummyDecode(b"stubbed-qr")])
-    return DetectionServer(host="localhost", port=0, model_size="s")
+    return DetectionServer(
+        host="localhost",
+        port=0,
+        model_size="s",
+        registration_path=tmp_path / "homography.npy",
+    )
 
 
 def test_detect_qrs_from_image(stubbed_server):
@@ -48,6 +53,7 @@ def test_detect_qrs_from_image(stubbed_server):
     assert result["count"] > 0
     assert len(result["detections"]) == result["count"]
     assert isinstance(result["processing_time"], float)
+    assert result["homography"] is None
 
     for det in result["detections"]:
         # Every detection must have a bounding box with 4 ints
@@ -58,12 +64,51 @@ def test_detect_qrs_from_image(stubbed_server):
         # Confidence should be a positive number
         assert det["confidence"] is not None
         assert det["confidence"] > 0
+        assert det["homography"] is None
+        assert det["depth_bbox"] is None
 
         # pyzbar should have decoded at least some of them
     decoded_values = [d["decoded"] for d in result["detections"] if d["decoded"]]
     assert len(decoded_values) > 0, "pyzbar should decode at least one QR code"
 
     print(decoded_values)
+
+
+def test_detect_qrs_includes_registration_projection(monkeypatch, tmp_path):
+    monkeypatch.setattr("qr_to_pos.server.QRDetector", lambda model_size="s": _DummyDetector())
+    monkeypatch.setattr("qr_to_pos.server.pyzbar_decode", lambda _crop: [_DummyDecode(b"stubbed-qr")])
+
+    registration_path = tmp_path / "homography.npy"
+    homography = np.array(
+        [
+            [1.0, 0.0, 100.0],
+            [0.0, 1.0, 200.0],
+            [0.0, 0.0, 1.0],
+        ]
+    )
+    np.save(registration_path, homography)
+
+    server = DetectionServer(
+        host="localhost",
+        port=0,
+        model_size="s",
+        registration_path=registration_path,
+    )
+
+    image_bytes = IMAGE_PATH.read_bytes()
+    image = server.decode_image(image_bytes)
+    result = server.detect_response(image)
+
+    assert result["homography"] == homography.tolist()
+    assert len(result["detections"]) == 1
+    detection = result["detections"][0]
+    assert detection["homography"] == homography.tolist()
+    assert detection["depth_bbox"] == [
+        [112.0, 218.0],
+        [196.0, 218.0],
+        [196.0, 304.0],
+        [112.0, 304.0],
+    ]
 
 
 def test_update_corners_action(monkeypatch):
