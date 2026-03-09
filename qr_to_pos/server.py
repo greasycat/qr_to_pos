@@ -4,6 +4,8 @@ import json
 import signal
 import time
 from dataclasses import asdict
+from pathlib import Path
+from typing import Any
 
 import cv2
 import numpy as np
@@ -12,6 +14,16 @@ from qrdet import QRDetector
 from websockets.asyncio.server import serve
 
 from .processor import QRCode
+from .registration import (
+    compute_homography,
+    detect_box_corners_color,
+    detect_box_corners_depth,
+    save_registration,
+)
+
+_DEFAULT_REGISTRATION_PATH = (
+    Path(__file__).resolve().parent.parent / "assets" / "registration" / "homography.npy"
+)
 
 
 class DetectionServer:
@@ -23,11 +35,13 @@ class DetectionServer:
         port: int = 8765,
         model_size: str = "s",
         max_size: int = 16 * 1024 * 1024,
+        registration_path: str | Path = _DEFAULT_REGISTRATION_PATH,
     ) -> None:
         self.host = host
         self.port = port
         self.max_size = max_size
         self.detector = QRDetector(model_size=model_size)
+        self.registration_path = Path(registration_path)
 
     def detect(self, image: np.ndarray) -> list[QRCode]:
         detections = self.detector.detect(image=image, is_bgr=True)
@@ -67,43 +81,136 @@ class DetectionServer:
             raise ValueError("Failed to decode image")
         return image
 
+    def decode_base64_image(self, image_b64: str) -> np.ndarray:
+        return self.decode_image(base64.b64decode(image_b64))
+
+    def decode_depth_text(self, raw_text: str) -> np.ndarray:
+        lines = raw_text.splitlines()
+        if not lines:
+            raise ValueError("Depth TXT is empty")
+
+        data_lines = [line for line in lines[1:] if line.strip()]
+        if not data_lines:
+            raise ValueError("Depth TXT has no depth rows")
+
+        rows = [list(map(float, line.strip().split("\t"))) for line in data_lines]
+        return np.array(rows, dtype=np.float32)
+
+    def _serialize_points(self, pts: np.ndarray | None) -> list[list[float]] | None:
+        if pts is None:
+            return None
+        return [[float(x), float(y)] for x, y in pts]
+
+    def detect_response(self, image: np.ndarray) -> dict[str, Any]:
+        start = time.perf_counter()
+        qr_codes = self.detect(image)
+        processing_time = time.perf_counter() - start
+        return {
+            "action": "detect",
+            "detections": [asdict(qr) for qr in qr_codes],
+            "count": len(qr_codes),
+            "processing_time": round(processing_time, 4),
+        }
+
+    def update_corners_response(self, color_image: np.ndarray, depth: np.ndarray) -> dict[str, Any]:
+        color_pts = detect_box_corners_color(color_image)
+        depth_pts = detect_box_corners_depth(depth)
+        return {
+            "action": "update_corners",
+            "color_corners": self._serialize_points(color_pts),
+            "depth_corners": self._serialize_points(depth_pts),
+            "color_detected": color_pts is not None,
+            "depth_detected": depth_pts is not None,
+        }
+
+    def update_registration_response(
+        self,
+        color_corners: list[list[float]] | np.ndarray,
+        depth_corners: list[list[float]] | np.ndarray,
+        save: bool = True,
+    ) -> dict[str, Any]:
+        color_pts = np.array(color_corners, dtype=np.float32)
+        depth_pts = np.array(depth_corners, dtype=np.float32)
+        if color_pts.shape != (4, 2) or depth_pts.shape != (4, 2):
+            raise ValueError("Expected color_corners and depth_corners to be 4x2 point arrays")
+
+        H = compute_homography(color_pts, depth_pts)
+        saved_path = None
+        if save:
+            self.registration_path.parent.mkdir(parents=True, exist_ok=True)
+            save_registration(H, str(self.registration_path))
+            saved_path = str(self.registration_path)
+
+        return {
+            "action": "update_registration",
+            "homography": H.tolist(),
+            "saved_path": saved_path,
+        }
+
+    def handle_json_message(self, payload: dict[str, Any]) -> dict[str, Any]:
+        action = payload.get("action")
+        if action is None and "image" in payload:
+            action = "detect"
+
+        if action == "detect":
+            image_b64 = payload.get("image")
+            if image_b64 is None:
+                raise ValueError("Missing 'image' field")
+            image = self.decode_base64_image(image_b64)
+            return self.detect_response(image)
+
+        if action == "update_corners":
+            image_b64 = payload.get("color_image")
+            depth_text = payload.get("depth_text")
+            if image_b64 is None:
+                raise ValueError("Missing 'color_image' field")
+            if depth_text is None:
+                raise ValueError("Missing 'depth_text' field")
+            color_image = self.decode_base64_image(image_b64)
+            depth = self.decode_depth_text(depth_text)
+            return self.update_corners_response(color_image, depth)
+
+        if action == "update_registration":
+            color_corners = payload.get("color_corners")
+            depth_corners = payload.get("depth_corners")
+            if color_corners is None:
+                raise ValueError("Missing 'color_corners' field")
+            if depth_corners is None:
+                raise ValueError("Missing 'depth_corners' field")
+            return self.update_registration_response(
+                color_corners=color_corners,
+                depth_corners=depth_corners,
+                save=bool(payload.get("save", True)),
+            )
+
+        raise ValueError(f"Unsupported action: {action}")
+
     async def handle(self, websocket) -> None:  # type: ignore
         async for message in websocket:
+            action = "detect" if isinstance(message, bytes) else None
             try:
                 if isinstance(message, bytes):
-                    image = self.decode_image(message)
+                    response = self.detect_response(self.decode_image(message))
                 elif isinstance(message, str):
                     payload = json.loads(message)
-                    image_b64 = payload.get("image")
-                    if image_b64 is None:
-                        await websocket.send(
-                            json.dumps({"error": "Missing 'image' field"})
-                        )
-                        continue
-                    image = self.decode_image(base64.b64decode(image_b64))
+                    action = payload.get("action")
+                    response = self.handle_json_message(payload)
                 else:
                     await websocket.send(
                         json.dumps({"error": "Unsupported message type"})
                     )
                     continue
 
-                start = time.perf_counter()
-                qr_codes = self.detect(image)
-                processing_time = time.perf_counter() - start
-
-                response = {
-                    "detections": [asdict(qr) for qr in qr_codes],
-                    "count": len(qr_codes),
-                    "processing_time": round(processing_time, 4),
-                }
                 await websocket.send(json.dumps(response))
 
             except json.JSONDecodeError:
                 await websocket.send(json.dumps({"error": "Invalid JSON"}))
             except ValueError as e:
-                await websocket.send(json.dumps({"error": str(e)}))
+                await websocket.send(json.dumps({"error": str(e), "action": action}))
             except Exception as e:
-                await websocket.send(json.dumps({"error": f"Processing error: {e}"}))
+                await websocket.send(
+                    json.dumps({"error": f"Processing error: {e}", "action": action})
+                )
 
     async def run(self) -> None:
         loop = asyncio.get_running_loop()

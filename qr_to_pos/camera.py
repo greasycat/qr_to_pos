@@ -3,7 +3,6 @@ import time
 from dataclasses import dataclass
 from typing import Callable
 
-import cv2
 import numpy as np
 import pyrealsense2 as rs
 
@@ -54,10 +53,6 @@ class Camera:
         self._running = False
         self._callbacks: list[Callable[[Frame], None]] = []
         self._callback_lock = threading.Lock()
-        
-        # Visualization state
-        self._visualization_running = False
-        self._window_name = 'Camera View'
     
     def start(self) -> None:
         """Start the capture thread."""
@@ -71,7 +66,6 @@ class Camera:
     
     def stop(self, timeout: float = 2.0) -> None:
         """Stop the capture thread."""
-        self.stop_visualization()
         if not self._running:
             return
         
@@ -139,41 +133,6 @@ class Camera:
                 if self._running:
                     print(f"Error in capture loop: {e}")
                     time.sleep(0.1)
-    
-    def start_visualization(self, window_name: str = 'Camera View') -> None:
-        if not self._running:
-            raise RuntimeError("Camera must be started before starting visualization")
-        
-        if self._visualization_running:
-            return
-        
-        self._window_name = window_name
-        self._visualization_running = True
-        cv2.namedWindow(self._window_name, cv2.WINDOW_AUTOSIZE)
-        
-        try:
-            while self._visualization_running:
-                frame = self.get_latest_frame()
-                if frame is not None:
-                    cv2.imshow(self._window_name, frame.data)
-                
-                key = cv2.waitKey(1) & 0xFF
-                if key == ord('q') or cv2.getWindowProperty(self._window_name, cv2.WND_PROP_VISIBLE) < 1:
-                    self._visualization_running = False
-                    break
-                    
-                time.sleep(0.033)  # ~30 FPS display rate
-        finally:
-            cv2.destroyWindow(self._window_name)
-            self._visualization_running = False
-    
-    def stop_visualization(self) -> None:
-        """Stop camera-only visualization."""
-        if not self._visualization_running:
-            return
-        
-        self._visualization_running = False
-        cv2.destroyWindow(self._window_name)
     
     def __enter__(self) -> "Camera":
         self.start()

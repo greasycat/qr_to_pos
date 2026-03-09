@@ -1,0 +1,1051 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>QR Detection And Registration</title>
+  <style>
+    :root {
+      --bg: #eef2f6;
+      --card: #ffffff;
+      --line: #d8e0ea;
+      --text: #122033;
+      --muted: #5f7085;
+      --accent: #0f766e;
+      --accent-strong: #115e59;
+      --warn: #b45309;
+      --danger: #b91c1c;
+      --ok: #15803d;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      padding: 24px;
+      font-family: "Segoe UI", sans-serif;
+      background:
+        radial-gradient(circle at top left, rgba(15, 118, 110, 0.10), transparent 28%),
+        linear-gradient(180deg, #f6f8fb 0%, var(--bg) 100%);
+      color: var(--text);
+    }
+
+    .shell {
+      max-width: 1440px;
+      margin: 0 auto;
+      display: grid;
+      gap: 18px;
+    }
+
+    .panel {
+      background: var(--card);
+      border: 1px solid rgba(18, 32, 51, 0.08);
+      border-radius: 18px;
+      box-shadow: 0 18px 40px rgba(15, 23, 42, 0.06);
+      overflow: hidden;
+    }
+
+    .panel-body {
+      padding: 18px;
+      display: grid;
+      gap: 16px;
+    }
+
+    h1 {
+      font-size: 1.5rem;
+      margin: 0;
+    }
+
+    .subtle {
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+
+    .connection-row,
+    .toolbar,
+    .stats {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    input[type="text"],
+    input[type="file"] {
+      min-width: 0;
+      font: inherit;
+    }
+
+    input[type="text"] {
+      flex: 1 1 320px;
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #f8fafc;
+      color: var(--text);
+    }
+
+    input[type="file"] {
+      flex: 1 1 220px;
+    }
+
+    button {
+      border: none;
+      border-radius: 10px;
+      padding: 10px 14px;
+      font: inherit;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.12s ease, opacity 0.12s ease;
+    }
+
+    button:hover:not(:disabled) { transform: translateY(-1px); }
+    button:disabled { opacity: 0.45; cursor: default; }
+
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-secondary { background: #dde7f0; color: var(--text); }
+    .btn-danger { background: var(--danger); color: #fff; }
+    .btn-success { background: var(--ok); color: #fff; }
+
+    .badge {
+      border-radius: 999px;
+      padding: 6px 10px;
+      font-size: 0.8rem;
+      font-weight: 700;
+    }
+
+    .badge.disconnected { background: #e2e8f0; color: #475569; }
+    .badge.connecting { background: #fef3c7; color: #92400e; }
+    .badge.connected { background: #dcfce7; color: #166534; }
+    .badge.error { background: #fee2e2; color: #991b1b; }
+
+    details.group {
+      border-top: 1px solid var(--line);
+    }
+
+    details.group:first-of-type {
+      border-top: none;
+    }
+
+    summary {
+      list-style: none;
+      cursor: pointer;
+      padding: 18px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      font-weight: 700;
+    }
+
+    summary::-webkit-details-marker { display: none; }
+
+    .summary-note {
+      color: var(--muted);
+      font-size: 0.88rem;
+      font-weight: 500;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 16px;
+    }
+
+    .stack {
+      display: grid;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .surface {
+      background: #f8fafc;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 12px;
+    }
+
+    .placeholder {
+      min-height: 220px;
+      border-radius: 12px;
+      border: 1px dashed #c7d2de;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      color: #7a8ca4;
+      background: linear-gradient(180deg, rgba(255,255,255,0.6), rgba(226,232,240,0.6));
+      padding: 16px;
+    }
+
+    .canvas-wrap {
+      display: grid;
+      gap: 8px;
+    }
+
+    .canvas-wrap h3,
+    .surface h3 {
+      margin: 0;
+      font-size: 0.96rem;
+    }
+
+    .canvas-wrap p,
+    .surface p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.84rem;
+    }
+
+    canvas,
+    img.preview {
+      width: 100%;
+      max-height: 500px;
+      object-fit: contain;
+      border-radius: 12px;
+      background: #edf2f7;
+      display: block;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.85rem;
+    }
+
+    th,
+    td {
+      text-align: left;
+      padding: 10px 8px;
+      border-bottom: 1px solid #edf2f7;
+      vertical-align: top;
+      word-break: break-word;
+    }
+
+    th {
+      color: var(--muted);
+      font-weight: 700;
+      background: #f8fafc;
+    }
+
+    .status-text {
+      min-height: 20px;
+      color: var(--muted);
+      font-size: 0.86rem;
+    }
+
+    .status-text.error { color: var(--danger); }
+    .status-text.success { color: var(--ok); }
+    .status-text.warn { color: var(--warn); }
+
+    pre.matrix {
+      margin: 0;
+      padding: 12px;
+      border-radius: 12px;
+      background: #0f172a;
+      color: #dbeafe;
+      font-size: 0.8rem;
+      overflow-x: auto;
+    }
+
+    .pill-row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      font-size: 0.86rem;
+      color: var(--muted);
+    }
+
+    @media (max-width: 980px) {
+      body { padding: 14px; }
+      .grid-2 { grid-template-columns: 1fr; }
+      summary { align-items: flex-start; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <section class="panel">
+      <div class="panel-body">
+        <div>
+          <h1>QR Detection And Registration</h1>
+          <p class="subtle">Use one WebSocket session for QR detection, corner updates, and homography updates.</p>
+        </div>
+
+        <div class="connection-row">
+          <input type="text" id="ws-url" value="{{ default_ws_url }}" placeholder="ws://localhost:8765" />
+          <button class="btn-primary" id="btn-connect" type="button">Connect</button>
+          <button class="btn-danger" id="btn-disconnect" type="button" disabled>Disconnect</button>
+          <span class="badge disconnected" id="status-badge">Disconnected</span>
+        </div>
+
+        <details class="group" open>
+          <summary>
+            <span>QR Code Detection</span>
+            <span class="summary-note">Upload an image or use the bundled sample.</span>
+          </summary>
+          <div class="panel-body">
+            <div class="grid-2">
+              <div class="stack">
+                <div class="toolbar">
+                  <input type="file" id="det-file-input" accept="image/*" />
+                  <button class="btn-secondary" id="btn-load-test" type="button">Load Test Image</button>
+                  <button class="btn-success" id="btn-detect" type="button" disabled>Detect</button>
+                </div>
+                <div class="status-text" id="det-status"></div>
+                <div class="surface">
+                  <h3>Preview</h3>
+                  <div class="placeholder" id="det-preview-placeholder">No image loaded.</div>
+                  <img class="preview" id="det-preview-img" alt="Detection preview" style="display:none" />
+                </div>
+              </div>
+
+              <div class="stack">
+                <div class="surface">
+                  <h3>Detection Result</h3>
+                  <div class="pill-row" id="det-stats" style="display:none">
+                    <span>Detections: <strong id="stat-count">0</strong></span>
+                    <span>Time: <strong id="stat-time">-</strong></span>
+                  </div>
+                  <div class="placeholder" id="det-canvas-placeholder">Run detection to see bounding boxes.</div>
+                  <canvas id="det-result-canvas" style="display:none"></canvas>
+                </div>
+                <div class="surface">
+                  <h3>Decoded QR Codes</h3>
+                  <div class="placeholder" id="det-table-placeholder">No detections yet.</div>
+                  <table id="det-table" style="display:none">
+                    <thead>
+                      <tr>
+                        <th>#</th>
+                        <th>Decoded</th>
+                        <th>Confidence</th>
+                        <th>BBox</th>
+                      </tr>
+                    </thead>
+                    <tbody id="det-tbody"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        </details>
+
+        <details class="group" open>
+          <summary>
+            <span>Registration Update</span>
+            <span class="summary-note">Auto-suggest corners, then drag or click to refine before saving.</span>
+          </summary>
+          <div class="panel-body">
+            <div class="toolbar">
+              <input type="file" id="reg-color-input" accept="image/*" />
+              <input type="file" id="reg-depth-input" accept=".txt,text/plain" />
+              <button class="btn-secondary" id="btn-load-registration-sample" type="button">Load Sample Pair</button>
+            </div>
+
+            <div class="toolbar">
+              <button class="btn-primary" id="btn-update-corners" type="button" disabled>Auto Detect Corners</button>
+              <button class="btn-secondary" id="btn-clear-corners" type="button" disabled>Clear Corners</button>
+              <button class="btn-success" id="btn-update-registration" type="button" disabled>Update Registration</button>
+            </div>
+
+            <div class="status-text" id="reg-status"></div>
+
+            <div class="grid-2">
+              <div class="canvas-wrap">
+                <h3>Color Corners</h3>
+                <p>Click to add points in order TL, TR, BR, BL. Drag existing points. Right-click clears this canvas.</p>
+                <div class="placeholder" id="reg-color-placeholder">Load a registration color image.</div>
+                <canvas id="reg-color-canvas" style="display:none"></canvas>
+              </div>
+
+              <div class="canvas-wrap">
+                <h3>Depth Corners</h3>
+                <p>The depth TXT is rendered client-side. Use the same corner order as color.</p>
+                <div class="placeholder" id="reg-depth-placeholder">Load a depth TXT file.</div>
+                <canvas id="reg-depth-canvas" style="display:none"></canvas>
+              </div>
+            </div>
+
+            <div class="surface">
+              <h3>Registration Matrix</h3>
+              <p>Saved to the server default path when you click <strong>Update Registration</strong>.</p>
+              <pre class="matrix" id="reg-matrix">No homography saved yet.</pre>
+            </div>
+          </div>
+        </details>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    const TEST_IMAGE_URL = {{ test_image_url|tojson }};
+    const REGISTRATION_SAMPLE_URL = {{ registration_sample_url|tojson }};
+    const CORNER_LABELS = ['TL', 'TR', 'BR', 'BL'];
+    const CORNER_COLORS = ['#38bdf8', '#f59e0b', '#ef4444', '#22c55e'];
+
+    let ws = null;
+    let detecting = false;
+    let updatingCorners = false;
+    let updatingRegistration = false;
+
+    let detectionImage = null;
+
+    const registrationState = {
+      colorImage: null,
+      depthText: '',
+      depthRaster: null,
+      colorCorners: [],
+      depthCorners: [],
+      drag: null,
+    };
+
+    const $ = (id) => document.getElementById(id);
+
+    function setStatus(state, text) {
+      const badge = $('status-badge');
+      badge.className = `badge ${state}`;
+      badge.textContent = text;
+    }
+
+    function setSectionStatus(id, text, tone = '') {
+      const el = $(id);
+      el.textContent = text;
+      el.className = tone ? `status-text ${tone}` : 'status-text';
+    }
+
+    function isSocketOpen() {
+      return ws && ws.readyState === WebSocket.OPEN;
+    }
+
+    function updateActionButtons() {
+      const socketReady = isSocketOpen();
+      $('btn-detect').disabled = !(socketReady && detectionImage && !detecting);
+      $('btn-update-corners').disabled = !(
+        socketReady &&
+        registrationState.colorImage &&
+        registrationState.depthText &&
+        !updatingCorners &&
+        !updatingRegistration
+      );
+      $('btn-clear-corners').disabled = !(
+        registrationState.colorCorners.length || registrationState.depthCorners.length
+      );
+      $('btn-update-registration').disabled = !(
+        socketReady &&
+        registrationState.colorCorners.length === 4 &&
+        registrationState.depthCorners.length === 4 &&
+        !updatingRegistration &&
+        !updatingCorners
+      );
+    }
+
+    function connect() {
+      const url = $('ws-url').value.trim();
+      if (!url) {
+        setStatus('error', 'Invalid URL');
+        return;
+      }
+
+      setStatus('connecting', 'Connecting...');
+      $('btn-connect').disabled = true;
+      ws = new WebSocket(url);
+
+      ws.onopen = () => {
+        setStatus('connected', 'Connected');
+        $('btn-connect').disabled = true;
+        $('btn-disconnect').disabled = false;
+        updateActionButtons();
+      };
+
+      ws.onmessage = (event) => handleServerMessage(event.data);
+      ws.onerror = () => setStatus('error', 'Error');
+      ws.onclose = () => {
+        ws = null;
+        detecting = false;
+        updatingCorners = false;
+        updatingRegistration = false;
+        setStatus('disconnected', 'Disconnected');
+        $('btn-connect').disabled = false;
+        $('btn-disconnect').disabled = true;
+        updateActionButtons();
+      };
+    }
+
+    function disconnect() {
+      if (ws) {
+        ws.close();
+      }
+    }
+
+    function loadImageElementFromUrl(url) {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error(`Failed to load image: ${url}`));
+        img.src = url;
+      });
+    }
+
+    function fileToDataUrl(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(new Error(`Failed to read file: ${file.name}`));
+        reader.readAsDataURL(file);
+      });
+    }
+
+    function imageToBase64(image) {
+      return new Promise((resolve, reject) => {
+        const canvas = document.createElement('canvas');
+        canvas.width = image.naturalWidth;
+        canvas.height = image.naturalHeight;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          reject(new Error('2D canvas is unavailable'));
+          return;
+        }
+        ctx.drawImage(image, 0, 0);
+        canvas.toBlob((blob) => {
+          if (!blob) {
+            reject(new Error('Failed to encode image'));
+            return;
+          }
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result).split(',')[1]);
+          reader.onerror = () => reject(new Error('Failed to convert image'));
+          reader.readAsDataURL(blob);
+        }, 'image/png');
+      });
+    }
+
+    async function loadDetectionImageFromUrl(url) {
+      detectionImage = await loadImageElementFromUrl(url);
+      $('det-preview-img').src = url;
+      $('det-preview-img').style.display = 'block';
+      $('det-preview-placeholder').style.display = 'none';
+      setSectionStatus('det-status', '');
+      updateActionButtons();
+    }
+
+    async function onDetectionFileChange(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+      const dataUrl = await fileToDataUrl(file);
+      await loadDetectionImageFromUrl(dataUrl);
+    }
+
+    async function detect() {
+      if (!isSocketOpen() || !detectionImage || detecting) return;
+
+      detecting = true;
+      updateActionButtons();
+      setSectionStatus('det-status', 'Running QR detection...');
+
+      try {
+        const image = await imageToBase64(detectionImage);
+        ws.send(JSON.stringify({ action: 'detect', image }));
+      } catch (error) {
+        detecting = false;
+        updateActionButtons();
+        setSectionStatus('det-status', error.message, 'error');
+      }
+    }
+
+    function renderDetectionCanvas(detections) {
+      const canvas = $('det-result-canvas');
+      const placeholder = $('det-canvas-placeholder');
+      const ctx = canvas.getContext('2d');
+      canvas.width = detectionImage.naturalWidth;
+      canvas.height = detectionImage.naturalHeight;
+      ctx.drawImage(detectionImage, 0, 0);
+      ctx.lineWidth = Math.max(2, Math.round(canvas.width / 400));
+      ctx.font = `bold ${Math.max(14, Math.round(canvas.width / 60))}px monospace`;
+
+      detections.forEach((det) => {
+        if (!det.bbox) return;
+        const [x1, y1, x2, y2] = det.bbox;
+        const label = det.decoded || (det.confidence != null ? `conf:${det.confidence.toFixed(2)}` : 'QR');
+        const w = x2 - x1;
+        const h = y2 - y1;
+
+        ctx.strokeStyle = '#00c853';
+        ctx.strokeRect(x1, y1, w, h);
+
+        const labelHeight = 24;
+        const labelWidth = ctx.measureText(label).width + 8;
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.72)';
+        ctx.fillRect(x1, Math.max(0, y1 - labelHeight), labelWidth, labelHeight);
+        ctx.fillStyle = '#a7f3d0';
+        ctx.fillText(label, x1 + 4, Math.max(18, y1 - 6));
+      });
+
+      placeholder.style.display = 'none';
+      canvas.style.display = 'block';
+    }
+
+    function renderDetectionTable(detections) {
+      const table = $('det-table');
+      const tbody = $('det-tbody');
+      const placeholder = $('det-table-placeholder');
+      tbody.innerHTML = '';
+
+      if (!detections.length) {
+        placeholder.textContent = 'No QR codes detected.';
+        placeholder.style.display = 'flex';
+        table.style.display = 'none';
+        return;
+      }
+
+      detections.forEach((det, index) => {
+        const row = document.createElement('tr');
+        const idx = document.createElement('td');
+        idx.textContent = String(index + 1);
+
+        const decoded = document.createElement('td');
+        if (det.decoded) {
+          decoded.textContent = det.decoded;
+        } else {
+          decoded.textContent = 'not decoded';
+          decoded.style.color = '#94a3b8';
+        }
+
+        const confidence = document.createElement('td');
+        confidence.textContent = det.confidence != null ? det.confidence.toFixed(4) : '-';
+
+        const bbox = document.createElement('td');
+        bbox.textContent = det.bbox ? det.bbox.join(', ') : '-';
+
+        row.append(idx, decoded, confidence, bbox);
+        tbody.appendChild(row);
+      });
+
+      placeholder.style.display = 'none';
+      table.style.display = 'table';
+    }
+
+    function handleDetectResponse(data) {
+      detecting = false;
+      updateActionButtons();
+      $('det-stats').style.display = 'flex';
+      $('stat-count').textContent = data.count ?? 0;
+      $('stat-time').textContent = data.processing_time != null ? `${Number(data.processing_time).toFixed(3)}s` : '-';
+      renderDetectionCanvas(data.detections || []);
+      renderDetectionTable(data.detections || []);
+      setSectionStatus('det-status', `Detection finished with ${data.count ?? 0} result(s).`, 'success');
+    }
+
+    function parseDepthText(depthText) {
+      const lines = depthText.split(/\r?\n/).filter((line) => line.trim().length > 0);
+      if (lines.length < 2) {
+        throw new Error('Depth TXT is empty.');
+      }
+
+      const rows = lines.slice(1).map((line) => line.split('\t').map((value) => Number(value)));
+      const height = rows.length;
+      const width = rows[0].length;
+      const flat = new Float32Array(width * height);
+      let min = Number.POSITIVE_INFINITY;
+      let max = Number.NEGATIVE_INFINITY;
+
+      for (let y = 0; y < height; y += 1) {
+        if (rows[y].length !== width) {
+          throw new Error('Depth TXT rows must all have the same length.');
+        }
+        for (let x = 0; x < width; x += 1) {
+          const value = rows[y][x];
+          flat[y * width + x] = value;
+          if (value > 0) {
+            min = Math.min(min, value);
+            max = Math.max(max, value);
+          }
+        }
+      }
+
+      if (!Number.isFinite(min) || !Number.isFinite(max)) {
+        min = 0;
+        max = 1;
+      }
+
+      return { width, height, values: flat, min, max };
+    }
+
+    function depthColor(t) {
+      const stops = [
+        [0.00, [68, 1, 84]],
+        [0.25, [59, 82, 139]],
+        [0.50, [33, 145, 140]],
+        [0.75, [94, 201, 98]],
+        [1.00, [253, 231, 37]],
+      ];
+
+      for (let i = 1; i < stops.length; i += 1) {
+        const [t1, c1] = stops[i];
+        const [t0, c0] = stops[i - 1];
+        if (t <= t1) {
+          const ratio = (t - t0) / Math.max(1e-6, t1 - t0);
+          return c0.map((v, idx) => Math.round(v + (c1[idx] - v) * ratio));
+        }
+      }
+
+      return stops[stops.length - 1][1];
+    }
+
+    function depthRasterToCanvas(raster) {
+      const offscreen = document.createElement('canvas');
+      offscreen.width = raster.width;
+      offscreen.height = raster.height;
+      const ctx = offscreen.getContext('2d');
+      const imageData = ctx.createImageData(raster.width, raster.height);
+      const denom = Math.max(1e-6, raster.max - raster.min);
+
+      for (let i = 0; i < raster.values.length; i += 1) {
+        const value = raster.values[i];
+        const px = i * 4;
+        if (value <= 0) {
+          imageData.data[px] = 0;
+          imageData.data[px + 1] = 0;
+          imageData.data[px + 2] = 0;
+          imageData.data[px + 3] = 255;
+          continue;
+        }
+        const t = Math.max(0, Math.min(1, (value - raster.min) / denom));
+        const [r, g, b] = depthColor(t);
+        imageData.data[px] = r;
+        imageData.data[px + 1] = g;
+        imageData.data[px + 2] = b;
+        imageData.data[px + 3] = 255;
+      }
+
+      ctx.putImageData(imageData, 0, 0);
+      return offscreen;
+    }
+
+    function renderCornerOverlay(ctx, points) {
+      points.forEach((point, index) => {
+        ctx.beginPath();
+        ctx.fillStyle = CORNER_COLORS[index];
+        ctx.arc(point.x, point.y, 8, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = '#ffffff';
+        ctx.stroke();
+
+        ctx.fillStyle = CORNER_COLORS[index];
+        ctx.font = 'bold 16px sans-serif';
+        ctx.fillText(CORNER_LABELS[index], point.x + 10, point.y - 10);
+      });
+
+      if (points.length === 4) {
+        ctx.beginPath();
+        ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+        ctx.lineWidth = 2;
+        ctx.moveTo(points[0].x, points[0].y);
+        for (let i = 1; i < points.length; i += 1) {
+          ctx.lineTo(points[i].x, points[i].y);
+        }
+        ctx.closePath();
+        ctx.stroke();
+      }
+    }
+
+    function drawRegistrationCanvas(kind) {
+      const canvas = kind === 'color' ? $('reg-color-canvas') : $('reg-depth-canvas');
+      const placeholder = kind === 'color' ? $('reg-color-placeholder') : $('reg-depth-placeholder');
+      const ctx = canvas.getContext('2d');
+
+      if (kind === 'color') {
+        if (!registrationState.colorImage) {
+          canvas.style.display = 'none';
+          placeholder.style.display = 'flex';
+          return;
+        }
+        const image = registrationState.colorImage;
+        canvas.width = image.naturalWidth;
+        canvas.height = image.naturalHeight;
+        ctx.drawImage(image, 0, 0);
+      } else {
+        if (!registrationState.depthRaster) {
+          canvas.style.display = 'none';
+          placeholder.style.display = 'flex';
+          return;
+        }
+        const rasterCanvas = depthRasterToCanvas(registrationState.depthRaster);
+        canvas.width = rasterCanvas.width;
+        canvas.height = rasterCanvas.height;
+        ctx.drawImage(rasterCanvas, 0, 0);
+      }
+
+      renderCornerOverlay(ctx, kind === 'color' ? registrationState.colorCorners : registrationState.depthCorners);
+      canvas.style.display = 'block';
+      placeholder.style.display = 'none';
+    }
+
+    function renderRegistrationCanvases() {
+      drawRegistrationCanvas('color');
+      drawRegistrationCanvas('depth');
+      updateActionButtons();
+    }
+
+    function normalizeCorners(points) {
+      return points.slice(0, 4).map((point) => [Number(point.x.toFixed(3)), Number(point.y.toFixed(3))]);
+    }
+
+    function setRegistrationCorners(kind, rawPoints) {
+      const points = (rawPoints || []).slice(0, 4).map(([x, y]) => ({ x: Number(x), y: Number(y) }));
+      if (kind === 'color') {
+        registrationState.colorCorners = points;
+      } else {
+        registrationState.depthCorners = points;
+      }
+      renderRegistrationCanvases();
+    }
+
+    async function setRegistrationColorFromUrl(url) {
+      registrationState.colorImage = await loadImageElementFromUrl(url);
+      registrationState.colorCorners = [];
+      renderRegistrationCanvases();
+    }
+
+    async function setRegistrationColorFromFile(file) {
+      const dataUrl = await fileToDataUrl(file);
+      await setRegistrationColorFromUrl(dataUrl);
+    }
+
+    function setRegistrationDepthText(depthText) {
+      registrationState.depthText = depthText;
+      registrationState.depthRaster = parseDepthText(depthText);
+      registrationState.depthCorners = [];
+      renderRegistrationCanvases();
+    }
+
+    async function setRegistrationDepthFromFile(file) {
+      const text = await file.text();
+      setRegistrationDepthText(text);
+    }
+
+    async function loadRegistrationSample() {
+      const response = await fetch(REGISTRATION_SAMPLE_URL);
+      const payload = await response.json();
+      const depthText = await fetch(payload.depth_text_url).then((resp) => resp.text());
+      await setRegistrationColorFromUrl(payload.color_image_url);
+      setRegistrationDepthText(depthText);
+      setSectionStatus('reg-status', 'Loaded sample color image and depth TXT.', 'success');
+    }
+
+    function clearCorners() {
+      registrationState.colorCorners = [];
+      registrationState.depthCorners = [];
+      renderRegistrationCanvases();
+      setSectionStatus('reg-status', 'Cleared both corner sets. Click canvases to add points manually.', 'warn');
+    }
+
+    function getCanvasPoint(event, canvas) {
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = canvas.width / rect.width;
+      const scaleY = canvas.height / rect.height;
+      return {
+        x: (event.clientX - rect.left) * scaleX,
+        y: (event.clientY - rect.top) * scaleY,
+      };
+    }
+
+    function findCornerIndex(points, point) {
+      const radiusSq = 18 * 18;
+      for (let i = 0; i < points.length; i += 1) {
+        const dx = points[i].x - point.x;
+        const dy = points[i].y - point.y;
+        if ((dx * dx) + (dy * dy) <= radiusSq) {
+          return i;
+        }
+      }
+      return -1;
+    }
+
+    function attachCornerEditor(canvasId, kind) {
+      const canvas = $(canvasId);
+
+      canvas.addEventListener('contextmenu', (event) => {
+        event.preventDefault();
+        if (kind === 'color') {
+          registrationState.colorCorners = [];
+        } else {
+          registrationState.depthCorners = [];
+        }
+        registrationState.drag = null;
+        renderRegistrationCanvases();
+        setSectionStatus('reg-status', `Cleared ${kind} corners.`, 'warn');
+      });
+
+      canvas.addEventListener('mousedown', (event) => {
+        if (event.button !== 0) return;
+        const points = kind === 'color' ? registrationState.colorCorners : registrationState.depthCorners;
+        const point = getCanvasPoint(event, canvas);
+        const index = findCornerIndex(points, point);
+        if (index >= 0) {
+          registrationState.drag = { kind, index };
+          return;
+        }
+        if (points.length < 4) {
+          points.push(point);
+          registrationState.drag = { kind, index: points.length - 1 };
+          renderRegistrationCanvases();
+          setSectionStatus('reg-status', `${kind} corner ${points.length}/4 placed.`, 'success');
+        }
+      });
+
+      canvas.addEventListener('mousemove', (event) => {
+        if (!registrationState.drag || registrationState.drag.kind !== kind) return;
+        const points = kind === 'color' ? registrationState.colorCorners : registrationState.depthCorners;
+        points[registrationState.drag.index] = getCanvasPoint(event, canvas);
+        renderRegistrationCanvases();
+      });
+
+      const stopDrag = () => {
+        registrationState.drag = null;
+      };
+      canvas.addEventListener('mouseup', stopDrag);
+      canvas.addEventListener('mouseleave', stopDrag);
+    }
+
+    async function updateCorners() {
+      if (!isSocketOpen() || !registrationState.colorImage || !registrationState.depthText || updatingCorners) return;
+
+      updatingCorners = true;
+      updateActionButtons();
+      setSectionStatus('reg-status', 'Requesting auto-detected corners...');
+
+      try {
+        const colorImage = await imageToBase64(registrationState.colorImage);
+        ws.send(JSON.stringify({
+          action: 'update_corners',
+          color_image: colorImage,
+          depth_text: registrationState.depthText,
+        }));
+      } catch (error) {
+        updatingCorners = false;
+        updateActionButtons();
+        setSectionStatus('reg-status', error.message, 'error');
+      }
+    }
+
+    function formatMatrix(matrix) {
+      return matrix.map((row) => row.map((value) => Number(value).toFixed(6)).join('  ')).join('\n');
+    }
+
+    async function updateRegistration() {
+      if (!isSocketOpen() || updatingRegistration) return;
+      if (registrationState.colorCorners.length !== 4 || registrationState.depthCorners.length !== 4) {
+        setSectionStatus('reg-status', 'Both color and depth need 4 corners.', 'error');
+        return;
+      }
+
+      updatingRegistration = true;
+      updateActionButtons();
+      setSectionStatus('reg-status', 'Saving registration...');
+      ws.send(JSON.stringify({
+        action: 'update_registration',
+        color_corners: normalizeCorners(registrationState.colorCorners),
+        depth_corners: normalizeCorners(registrationState.depthCorners),
+        save: true,
+      }));
+    }
+
+    function handleCornerUpdateResponse(data) {
+      updatingCorners = false;
+      if (data.color_corners) {
+        setRegistrationCorners('color', data.color_corners);
+      }
+      if (data.depth_corners) {
+        setRegistrationCorners('depth', data.depth_corners);
+      }
+      updateActionButtons();
+
+      if (!data.color_detected || !data.depth_detected) {
+        const missing = [
+          !data.color_detected ? 'color' : null,
+          !data.depth_detected ? 'depth' : null,
+        ].filter(Boolean).join(' and ');
+        setSectionStatus('reg-status', `Auto-detection is incomplete for ${missing}. Adjust corners manually.`, 'warn');
+        return;
+      }
+
+      setSectionStatus('reg-status', 'Auto-detected corners loaded. Drag points to refine if needed.', 'success');
+    }
+
+    function handleRegistrationUpdateResponse(data) {
+      updatingRegistration = false;
+      $('reg-matrix').textContent = formatMatrix(data.homography || []);
+      updateActionButtons();
+      const savedPath = data.saved_path ? ` Saved to ${data.saved_path}.` : '';
+      setSectionStatus('reg-status', `Registration updated.${savedPath}`, 'success');
+    }
+
+    function handleServerMessage(raw) {
+      let data;
+      try {
+        data = JSON.parse(raw);
+      } catch (error) {
+        detecting = false;
+        updatingCorners = false;
+        updatingRegistration = false;
+        updateActionButtons();
+        setSectionStatus('det-status', 'Server returned invalid JSON.', 'error');
+        return;
+      }
+
+      if (data.error) {
+        detecting = false;
+        updatingCorners = false;
+        updatingRegistration = false;
+        updateActionButtons();
+        const target = data.action && data.action !== 'detect' ? 'reg-status' : 'det-status';
+        setSectionStatus(target, data.error, 'error');
+        return;
+      }
+
+      if (data.action === 'update_corners') {
+        handleCornerUpdateResponse(data);
+        return;
+      }
+
+      if (data.action === 'update_registration') {
+        handleRegistrationUpdateResponse(data);
+        return;
+      }
+
+      handleDetectResponse(data);
+    }
+
+    $('btn-connect').addEventListener('click', connect);
+    $('btn-disconnect').addEventListener('click', disconnect);
+    $('btn-load-test').addEventListener('click', () => loadDetectionImageFromUrl(TEST_IMAGE_URL));
+    $('det-file-input').addEventListener('change', (event) => void onDetectionFileChange(event));
+    $('btn-detect').addEventListener('click', () => void detect());
+    $('reg-color-input').addEventListener('change', async (event) => {
+      const file = event.target.files[0];
+      if (!file) return;
+      await setRegistrationColorFromFile(file);
+      setSectionStatus('reg-status', 'Loaded color image for registration.', 'success');
+    });
+    $('reg-depth-input').addEventListener('change', async (event) => {
+      const file = event.target.files[0];
+      if (!file) return;
+      try {
+        await setRegistrationDepthFromFile(file);
+        setSectionStatus('reg-status', 'Loaded depth TXT for registration.', 'success');
+      } catch (error) {
+        setSectionStatus('reg-status', error.message, 'error');
+      }
+    });
+    $('btn-load-registration-sample').addEventListener('click', () => void loadRegistrationSample());
+    $('btn-update-corners').addEventListener('click', () => void updateCorners());
+    $('btn-clear-corners').addEventListener('click', clearCorners);
+    $('btn-update-registration').addEventListener('click', () => void updateRegistration());
+
+    attachCornerEditor('reg-color-canvas', 'color');
+    attachCornerEditor('reg-depth-canvas', 'depth');
+    updateActionButtons();
+  </script>
+</body>
+</html>

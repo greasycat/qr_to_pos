@@ -1,33 +1,45 @@
-import json
+import base64
 from pathlib import Path
+import sys
 
+import cv2
+import numpy as np
 import pytest
-import websockets
-from websockets.asyncio.server import serve
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from qr_to_pos.server import DetectionServer
 
-IMAGE_PATH = Path(__file__).resolve().parent.parent / "qrs.png"
+IMAGE_PATH = Path(__file__).resolve().parent.parent / "assets" / "fake_background_multiple_qr.png"
+
+
+class _DummyDetector:
+    def detect(self, image, is_bgr=True):
+        return [
+            {
+                "bbox_xyxy": [12, 18, 96, 104],
+                "confidence": 0.97,
+                "data": "dummy",
+            }
+        ]
+
+
+class _DummyDecode:
+    def __init__(self, data: bytes) -> None:
+        self.data = data
 
 
 @pytest.fixture()
-async def server_url():
-    server = DetectionServer(host="localhost", port=0, model_size="s")
-    async with serve(server.handle, server.host, 0, max_size=server.max_size) as ws_server:
-        # Get the actual port assigned by the OS
-        port = ws_server.sockets[0].getsockname()[1]
-        yield f"ws://localhost:{port}"
+def stubbed_server(monkeypatch):
+    monkeypatch.setattr("qr_to_pos.server.QRDetector", lambda model_size="s": _DummyDetector())
+    monkeypatch.setattr("qr_to_pos.server.pyzbar_decode", lambda _crop: [_DummyDecode(b"stubbed-qr")])
+    return DetectionServer(host="localhost", port=0, model_size="s")
 
 
-@pytest.mark.asyncio
-async def test_detect_qrs_from_image(server_url):
+def test_detect_qrs_from_image(stubbed_server):
     image_bytes = IMAGE_PATH.read_bytes()
-
-    async with websockets.connect(server_url) as ws:
-        await ws.send(image_bytes)
-        raw = await ws.recv()
-
-    result = json.loads(raw)
+    image = stubbed_server.decode_image(image_bytes)
+    result = stubbed_server.detect_response(image)
 
     # Should not be an error response
     assert "error" not in result
@@ -52,3 +64,67 @@ async def test_detect_qrs_from_image(server_url):
     assert len(decoded_values) > 0, "pyzbar should decode at least one QR code"
 
     print(decoded_values)
+
+
+def test_update_corners_action(monkeypatch):
+    monkeypatch.setattr("qr_to_pos.server.QRDetector", lambda model_size="s": _DummyDetector())
+    server = DetectionServer(host="localhost", port=0, model_size="s")
+
+    monkeypatch.setattr(
+        "qr_to_pos.server.detect_box_corners_color",
+        lambda _image: np.array([[10, 10], [110, 12], [108, 90], [12, 88]], dtype=np.float32),
+    )
+    monkeypatch.setattr(
+        "qr_to_pos.server.detect_box_corners_depth",
+        lambda _depth: np.array([[8, 14], [95, 11], [101, 80], [6, 83]], dtype=np.float32),
+    )
+
+    image = np.full((8, 8, 3), 180, dtype=np.uint8)
+    ok, encoded = cv2.imencode(".png", image)
+    assert ok
+
+    response = server.handle_json_message(
+        {
+            "action": "update_corners",
+            "color_image": base64.b64encode(encoded.tobytes()).decode("ascii"),
+            "depth_text": "Frame size: 2 x 2\n1.0\t1.1\n1.2\t1.3\n",
+        }
+    )
+
+    assert response["action"] == "update_corners"
+    assert response["color_detected"] is True
+    assert response["depth_detected"] is True
+    assert response["color_corners"] == [[10.0, 10.0], [110.0, 12.0], [108.0, 90.0], [12.0, 88.0]]
+    assert response["depth_corners"] == [[8.0, 14.0], [95.0, 11.0], [101.0, 80.0], [6.0, 83.0]]
+
+
+def test_update_registration_action(monkeypatch, tmp_path):
+    monkeypatch.setattr("qr_to_pos.server.QRDetector", lambda model_size="s": _DummyDetector())
+    server = DetectionServer(
+        host="localhost",
+        port=0,
+        model_size="s",
+        registration_path=tmp_path / "homography.npy",
+    )
+
+    saved = {}
+
+    def fake_save_registration(matrix, path):
+        saved["matrix"] = matrix.copy()
+        saved["path"] = path
+
+    monkeypatch.setattr("qr_to_pos.server.save_registration", fake_save_registration)
+
+    response = server.handle_json_message(
+        {
+            "action": "update_registration",
+            "color_corners": [[0, 0], [10, 0], [10, 10], [0, 10]],
+            "depth_corners": [[2, 3], [12, 3], [12, 13], [2, 13]],
+        }
+    )
+
+    assert response["action"] == "update_registration"
+    assert response["saved_path"] == str(tmp_path / "homography.npy")
+    assert len(response["homography"]) == 3
+    np.testing.assert_allclose(saved["matrix"], np.array(response["homography"]))
+    assert saved["path"] == str(tmp_path / "homography.npy")
