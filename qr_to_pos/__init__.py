@@ -12,7 +12,12 @@ from .registration import (
     save_registration,
     visualize_depth,
 )
-from .server import DetectionServer
+def __getattr__(name: str):
+    if name == "DetectionServer":
+        from .server import DetectionServer
+        return DetectionServer
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 __all__ = [
     "Camera",

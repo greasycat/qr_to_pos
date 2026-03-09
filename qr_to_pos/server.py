@@ -245,9 +245,13 @@ class DetectionServer:
         loop = asyncio.get_running_loop()
         stop = loop.create_future()
 
+        def _set_stop() -> None:
+            if not stop.done():
+                stop.set_result(None)
+
         for sig in (signal.SIGINT, signal.SIGTERM):
             try:
-                loop.add_signal_handler(sig, stop.set_result, None)
+                loop.add_signal_handler(sig, _set_stop)
             except NotImplementedError:
                 # Windows doesn't support add_signal_handler
                 pass
