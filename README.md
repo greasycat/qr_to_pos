@@ -1,78 +1,114 @@
-# qr_to_pos
+# qr_to_pos Launch and Server Notes
 
-Real-time QR code detection from Intel RealSense cameras, with a WebSocket server for remote image processing.
+This file documents the current startup flow implemented in `launch.py`, the QR WebSocket server in `qr_to_pos/server.py`, and the Flask backend in `web/app.py`.
 
-## Setup
+## Launcher
 
-Requires Python 3.12+.
-
-```bash
-uv sync
-```
-
-## WebSocket Detection Server
-
-Accepts images over WebSocket and returns QR code detection results.
-
-### Start the server
+Start the interactive launcher with:
 
 ```bash
-python -m qr_to_pos.server
+uv run python launch.py
 ```
 
-Options:
+`launch.py` does not accept CLI arguments. It always starts these two services:
 
-| Flag             | Default     | Description                          |
-| ---------------- | ----------- | ------------------------------------ |
-| `--host`         | `localhost` | Bind address                         |
-| `--port`         | `8765`      | Port number                          |
-| `--model-size`   | `s`         | YOLO model size (`n`, `s`, `m`, `l`) |
+1. `QR WebSocket Server`
+   Command:
+   ```bash
+   uv run python -m qr_to_pos.server
+   ```
+   Default endpoint: `ws://localhost:8765`
 
-### Send images
+2. `Web UI (Flask)`
+   Command:
+   ```bash
+   uv run python web/app.py
+   ```
+   Default endpoint: `http://localhost:5000`
 
-The server accepts two input formats:
+Launcher key bindings:
 
-**Binary** — send raw image bytes (PNG, JPEG, etc.) as a binary WebSocket message.
+- `j` or Down: move selection down
+- `k` or Up: move selection up
+- `s`: start selected service
+- `x`: stop selected service
+- `r`: restart selected service
+- `o`: open the Flask UI in a browser
+- `q` or `Ctrl+C`: quit and stop all services
 
-**JSON** — send a text message with a base64-encoded image:
+## WebSocket Server
 
-```json
-{"image": "<base64-encoded image bytes>"}
+Start directly with:
+
+```bash
+uv run python -m qr_to_pos.server [--host HOST] [--port PORT] [--model-size {n,s,m,l}]
 ```
 
-### Response
+Implemented CLI options:
 
-```json
-{
-  "detections": [
-    {
-      "data": "https://example.com",
-      "bbox": [100, 200, 300, 400],
-      "confidence": 0.95,
-      "decoded": "https://example.com"
-    }
-  ],
-  "count": 1,
-  "processing_time": 0.0342
-}
+| Option | Default | Notes |
+| --- | --- | --- |
+| `--host` | `localhost` | Bind address for the WebSocket server |
+| `--port` | `8765` | Listening port |
+| `--model-size` | `s` | qrdet YOLO model size: `n`, `s`, `m`, or `l` |
+
+Internal defaults that are not exposed as CLI flags:
+
+- `max_size = 16 * 1024 * 1024` bytes for incoming WebSocket messages
+- `registration_path = assets/registration/homography.npy`
+
+Supported WebSocket request styles:
+
+1. Binary message
+   Send raw image bytes such as PNG or JPEG. The server treats this as a detection request.
+
+2. JSON message
+   Send a JSON object with one of these actions:
+
+- `detect`
+  Required field: `image` (base64-encoded image bytes)
+- `update_corners`
+  Required fields: `color_image` (base64 image), `depth_text` (tab-separated depth text)
+- `update_registration`
+  Required fields: `color_corners`, `depth_corners`
+  Optional field: `save` (`true` by default)
+
+Response behavior:
+
+- `detect` returns `action`, `homography`, `detections`, `count`, and `processing_time`
+- Each detection may include `bbox`, `confidence`, `decoded`, `homography`, and `depth_bbox`
+- Invalid JSON or missing fields return JSON errors
+
+## Flask Backend
+
+Start directly with:
+
+```bash
+uv run python web/app.py [--host HOST] [--port PORT]
 ```
 
-- `data` — raw value from the YOLO detection model (may be empty)
-- `decoded` — QR content decoded by pyzbar (`null` if decoding failed)
+Implemented CLI options:
 
-On error: `{"error": "description"}`.
+| Option | Default | Notes |
+| --- | --- | --- |
+| `--host` | `127.0.0.1` | Bind address for the Flask app |
+| `--port` | `5000` | Listening port |
 
-### Python client example
+Flask routes exposed by `web/app.py`:
 
-```python
-import asyncio
-import websockets
+- `/`
+  Serves the test UI and injects `ws://localhost:8765` as the default WebSocket URL
+- `/test-image`
+  Returns `assets/fake_background_multiple_qr.png`
+- `/registration-sample`
+  Returns JSON with URLs for registration sample assets
+- `/registration-color-image`
+  Returns `assets/registration/1.png`
+- `/registration-depth-text`
+  Returns `assets/registration/1.txt`
 
-async def detect(image_path: str):
-    async with websockets.connect("ws://localhost:8765") as ws:
-        with open(image_path, "rb") as f:
-            await ws.send(f.read())
-        print(await ws.recv())
+## Practical Notes
 
-asyncio.run(detect("qrs.png"))
-```
+- If you use `launch.py`, the launcher starts both servers with their defaults only.
+- If you need custom host or port values, start `qr_to_pos.server` and `web/app.py` directly instead of using `launch.py`.
+- The Flask UI assumes the QR WebSocket server is reachable at `ws://localhost:8765` unless changed in the browser UI.

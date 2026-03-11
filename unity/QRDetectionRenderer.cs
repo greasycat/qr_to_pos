@@ -1,16 +1,12 @@
 using Intel.RealSense;
+using NativeWebSocket;
 using System;
 using System.Collections.Generic;
 using UnityEngine;
-using UnityEngine.Events;
-using NativeWebSocket;
 
 public class QRDetectionRenderer : MonoBehaviour
 {
     public RsFrameProvider Source;
-
-    [System.Serializable]
-    public class TextureEvent : UnityEvent<Texture> { }
 
     public Stream _stream;
     public Format _format;
@@ -22,32 +18,43 @@ public class QRDetectionRenderer : MonoBehaviour
     public string serverUrl = "ws://localhost:8765";
     public float sendInterval = 0.3f;
 
-    [Header("Overlay")]
-    public Color bboxColor = Color.green;
-    public int bboxThickness = 2;
-    public int fontSize = 20;
+    [Header("Marker Placement")]
+    public Terrain terrain;
+    public Transform markerParent;
+    public Vector3 markerScale = new Vector3(0.08f, 0.08f, 0.08f);
+    public Color markerColor = Color.green;
+    public float markerVerticalOffset = 0.05f;
 
-    [Space]
-    public TextureEvent textureBinding;
+    [Header("Depth Crop Mapping")]
+    public int depthFrameWidth = 513;
+    public int depthFrameHeight = 482;
+    public int cropTop = 110;
+    public int cropBottom = 170;
+    public int cropLeft = 165;
+    public int cropRight = 65;
+    public bool flipX;
+    public bool flipZ = true;
 
     FrameQueue q;
     Predicate<Frame> matcher;
     WebSocket websocket;
 
     Texture2D sourceTexture;
-    Texture2D overlayTexture;
 
     float lastSendTime;
     bool sending;
+    bool detectionsDirty;
+    bool missingTerrainLogged;
 
-    List<QRDetection> detections = new List<QRDetection>();
+    readonly List<QRDetection> detections = new List<QRDetection>();
     readonly object detectionsLock = new object();
+    readonly List<GameObject> spawnedMarkers = new List<GameObject>();
 
     [Serializable]
     struct QRDetection
     {
         public string data;
-        public int[] bbox; // [x, y, w, h]
+        public int[] bbox; // [x1, y1, x2, y2]
         public float confidence;
         public string decoded;
     }
@@ -102,6 +109,18 @@ public class QRDetectionRenderer : MonoBehaviour
 
     async void Start()
     {
+        if (terrain == null)
+            terrain = Terrain.activeTerrain;
+
+        if (markerParent == null)
+            markerParent = transform;
+
+        if (Source == null)
+        {
+            Debug.LogError("QRDetectionRenderer: Source is not assigned.");
+            return;
+        }
+
         Source.OnStart += OnStartStreaming;
         Source.OnStop += OnStopStreaming;
 
@@ -129,6 +148,8 @@ public class QRDetectionRenderer : MonoBehaviour
                 if (response.detections != null)
                     detections.AddRange(response.detections);
             }
+
+            detectionsDirty = true;
             sending = false;
         };
 
@@ -137,13 +158,30 @@ public class QRDetectionRenderer : MonoBehaviour
 
     void OnDestroy()
     {
-        if (sourceTexture != null) Destroy(sourceTexture);
-        if (overlayTexture != null) Destroy(overlayTexture);
+        if (Source != null)
+        {
+            Source.OnStart -= OnStartStreaming;
+            Source.OnStop -= OnStopStreaming;
+            Source.OnNewSample -= OnNewSample;
+        }
+
+        if (q != null)
+        {
+            q.Dispose();
+            q = null;
+        }
+
+        if (sourceTexture != null)
+            Destroy(sourceTexture);
+
+        ClearMarkers();
     }
 
     void OnStopStreaming()
     {
-        Source.OnNewSample -= OnNewSample;
+        if (Source != null)
+            Source.OnNewSample -= OnNewSample;
+
         if (q != null)
         {
             q.Dispose();
@@ -173,12 +211,18 @@ public class QRDetectionRenderer : MonoBehaviour
                 using (var fs = frame.As<FrameSet>())
                 using (var f = fs.FirstOrDefault(matcher))
                 {
-                    if (f != null) q.Enqueue(f);
+                    if (f != null)
+                        q.Enqueue(f);
+
                     return;
                 }
             }
-            if (!matcher(frame)) return;
-            using (frame) q.Enqueue(frame);
+
+            if (!matcher(frame))
+                return;
+
+            using (frame)
+                q.Enqueue(frame);
         }
         catch (Exception e)
         {
@@ -196,24 +240,31 @@ public class QRDetectionRenderer : MonoBehaviour
 
     void LateUpdate()
     {
-        #if !UNITY_WEBGL || UNITY_EDITOR
-        if (websocket != null) websocket.DispatchMessageQueue();
-        #endif
+#if !UNITY_WEBGL || UNITY_EDITOR
+        if (websocket != null)
+            websocket.DispatchMessageQueue();
+#endif
 
-        if (q == null) return;
+        if (q == null)
+            return;
 
         VideoFrame frame;
         if (q.PollForFrame<VideoFrame>(out frame))
+        {
             using (frame)
                 ProcessFrame(frame);
+        }
+
+        if (detectionsDirty)
+            RefreshMarkers();
     }
 
     void ProcessFrame(VideoFrame frame)
     {
         if (HasTextureConflict(frame, sourceTexture))
         {
-            if (sourceTexture != null) Destroy(sourceTexture);
-            if (overlayTexture != null) Destroy(overlayTexture);
+            if (sourceTexture != null)
+                Destroy(sourceTexture);
 
             using (var p = frame.Profile)
             {
@@ -225,28 +276,24 @@ public class QRDetectionRenderer : MonoBehaviour
                     filterMode = filterMode
                 };
             }
-
-            overlayTexture = new Texture2D(frame.Width, frame.Height, TextureFormat.RGBA32, false)
-            {
-                wrapMode = TextureWrapMode.Clamp,
-                filterMode = filterMode
-            };
-
-            textureBinding.Invoke(overlayTexture);
         }
 
         sourceTexture.LoadRawTextureData(frame.Data, frame.Stride * frame.Height);
         sourceTexture.Apply();
 
         SendFrameToServer();
-        RenderOverlay();
     }
 
     async void SendFrameToServer()
     {
-        if (sending) return;
-        if (websocket == null || websocket.State != WebSocketState.Open) return;
-        if (Time.time - lastSendTime < sendInterval) return;
+        if (sending)
+            return;
+        if (websocket == null || websocket.State != WebSocketState.Open)
+            return;
+        if (Time.time - lastSendTime < sendInterval)
+            return;
+        if (sourceTexture == null)
+            return;
 
         sending = true;
         lastSendTime = Time.time;
@@ -255,11 +302,22 @@ public class QRDetectionRenderer : MonoBehaviour
         await websocket.Send(png);
     }
 
-    void RenderOverlay()
+    void RefreshMarkers()
     {
-        // Copy source pixels into overlay, converting format
-        Color32[] srcPixels = sourceTexture.GetPixels32();
-        overlayTexture.SetPixels32(srcPixels);
+        detectionsDirty = false;
+        ClearMarkers();
+
+        if (terrain == null)
+        {
+            if (!missingTerrainLogged)
+            {
+                Debug.LogWarning("QRDetectionRenderer: No terrain assigned, skipping marker placement.");
+                missingTerrainLogged = true;
+            }
+            return;
+        }
+
+        missingTerrainLogged = false;
 
         List<QRDetection> currentDetections;
         lock (detectionsLock)
@@ -267,189 +325,100 @@ public class QRDetectionRenderer : MonoBehaviour
             currentDetections = new List<QRDetection>(detections);
         }
 
-        if (currentDetections.Count == 0)
+        for (int i = 0; i < currentDetections.Count; i++)
         {
-            overlayTexture.Apply();
-            return;
-        }
+            Vector3 worldPosition;
+            if (!TryGetMarkerPosition(currentDetections[i], out worldPosition))
+                continue;
 
-        Color32[] pixels = overlayTexture.GetPixels32();
-        int w = overlayTexture.width;
-        int h = overlayTexture.height;
-        Color32 color32 = bboxColor;
-
-        foreach (var det in currentDetections)
-        {
-            if (det.bbox == null || det.bbox.Length < 4) continue;
-
-            // bbox is [x1, y1, x2, y2] (corner coordinates)
-            int x1 = det.bbox[0];
-            int y1 = det.bbox[1];
-            int x2 = det.bbox[2];
-            int y2 = det.bbox[3];
-            int bw = x2 - x1;
-            int bh = y2 - y1;
-
-            // Draw bounding box rectangle (texture origin is bottom-left, bbox origin is top-left)
-            DrawRect(pixels, w, h, x1, y1, bw, bh, color32, bboxThickness);
-
-            // Draw decoded text label above the bbox
-            string label = det.decoded ?? det.data ?? "";
-            if (!string.IsNullOrEmpty(label))
-                DrawLabel(pixels, w, h, x1, y1 - fontSize - 4, label, color32);
-        }
-
-        overlayTexture.SetPixels32(pixels);
-        overlayTexture.Apply();
-    }
-
-    void DrawRect(Color32[] pixels, int texW, int texH, int x, int y, int w, int h, Color32 color, int thickness)
-    {
-        for (int t = 0; t < thickness; t++)
-        {
-            // Top edge
-            DrawHLine(pixels, texW, texH, x, y + t, w, color);
-            // Bottom edge
-            DrawHLine(pixels, texW, texH, x, y + h - 1 - t, w, color);
-            // Left edge
-            DrawVLine(pixels, texW, texH, x + t, y, h, color);
-            // Right edge
-            DrawVLine(pixels, texW, texH, x + w - 1 - t, y, h, color);
+            SpawnMarker(worldPosition, currentDetections[i], i);
         }
     }
 
-    void DrawHLine(Color32[] pixels, int texW, int texH, int x, int y, int length, Color32 color)
+    bool TryGetMarkerPosition(QRDetection detection, out Vector3 worldPosition)
     {
-        int flippedY = texH - 1 - y;
-        for (int i = 0; i < length; i++)
-        {
-            int px = x + i;
-            if (px < 0 || px >= texW || flippedY < 0 || flippedY >= texH) continue;
-            pixels[flippedY * texW + px] = color;
-        }
+        worldPosition = Vector3.zero;
+
+        if (terrain == null || sourceTexture == null)
+            return false;
+        if (detection.bbox == null || detection.bbox.Length < 4)
+            return false;
+
+        float centroidX = (detection.bbox[0] + detection.bbox[2]) * 0.5f;
+        float centroidY = (detection.bbox[1] + detection.bbox[3]) * 0.5f;
+
+        float frameWidth = sourceTexture.width;
+        float frameHeight = sourceTexture.height;
+        float scaleX = frameWidth / Mathf.Max(1, depthFrameWidth);
+        float scaleY = frameHeight / Mathf.Max(1, depthFrameHeight);
+
+        float minX = cropLeft * scaleX;
+        float maxX = frameWidth - 1f - (cropRight * scaleX);
+        float minY = cropTop * scaleY;
+        float maxY = frameHeight - 1f - (cropBottom * scaleY);
+
+        if (centroidX < minX || centroidX > maxX || centroidY < minY || centroidY > maxY)
+            return false;
+
+        float xNorm = Mathf.InverseLerp(minX, maxX, centroidX);
+        float zNorm = Mathf.InverseLerp(minY, maxY, centroidY);
+
+        if (flipX)
+            xNorm = 1f - xNorm;
+        if (flipZ)
+            zNorm = 1f - zNorm;
+
+        TerrainData terrainData = terrain.terrainData;
+        Vector3 terrainSize = terrainData.size;
+        Vector3 terrainPos = terrain.GetPosition();
+
+        float worldX = terrainPos.x + xNorm * terrainSize.x;
+        float worldZ = terrainPos.z + zNorm * terrainSize.z;
+        float worldY = terrain.SampleHeight(new Vector3(worldX, 0f, worldZ)) + terrainPos.y + markerVerticalOffset;
+
+        worldPosition = new Vector3(worldX, worldY, worldZ);
+        return true;
     }
 
-    void DrawVLine(Color32[] pixels, int texW, int texH, int x, int y, int length, Color32 color)
+    void SpawnMarker(Vector3 position, QRDetection detection, int index)
     {
-        for (int i = 0; i < length; i++)
-        {
-            int py = y + i;
-            int flippedY = texH - 1 - py;
-            if (x < 0 || x >= texW || flippedY < 0 || flippedY >= texH) continue;
-            pixels[flippedY * texW + x] = color;
-        }
+        GameObject marker = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        marker.name = BuildMarkerName(detection, index);
+        marker.transform.SetParent(markerParent, true);
+        marker.transform.position = position;
+        marker.transform.localScale = markerScale;
+
+        var markerRenderer = marker.GetComponent<Renderer>();
+        if (markerRenderer != null)
+            markerRenderer.material.color = markerColor;
+
+        var markerCollider = marker.GetComponent<Collider>();
+        if (markerCollider != null)
+            markerCollider.enabled = false;
+
+        spawnedMarkers.Add(marker);
     }
 
-    void DrawLabel(Color32[] pixels, int texW, int texH, int x, int y, string text, Color32 color)
+    string BuildMarkerName(QRDetection detection, int index)
     {
-        // Draw a background bar behind the text
-        int charWidth = fontSize / 2;
-        int labelW = text.Length * charWidth + 4;
-        int labelH = fontSize + 4;
+        string label = detection.decoded;
+        if (string.IsNullOrEmpty(label))
+            label = detection.data;
+        if (string.IsNullOrEmpty(label))
+            label = "QR";
 
-        Color32 bg = new Color32(0, 0, 0, 180);
-        for (int dy = 0; dy < labelH; dy++)
-        {
-            for (int dx = 0; dx < labelW; dx++)
-            {
-                int px = x + dx;
-                int py = y + dy;
-                int flippedY = texH - 1 - py;
-                if (px < 0 || px >= texW || flippedY < 0 || flippedY >= texH) continue;
-                pixels[flippedY * texW + px] = bg;
-            }
-        }
-
-        // Draw each character as a simple block letter
-        for (int ci = 0; ci < text.Length; ci++)
-        {
-            DrawChar(pixels, texW, texH, x + 2 + ci * charWidth, y + 2, text[ci], fontSize, color);
-        }
+        return string.Format("QRMarker_{0}_{1}", index, label);
     }
 
-    void DrawChar(Color32[] pixels, int texW, int texH, int x, int y, char c, int size, Color32 color)
+    void ClearMarkers()
     {
-        ulong glyph = GetGlyph(c);
-        // 5x7 grid scaled to size
-        float scaleX = size / 2f / 5f;
-        float scaleY = (float)size / 7f;
-
-        for (int row = 0; row < 7; row++)
+        for (int i = 0; i < spawnedMarkers.Count; i++)
         {
-            for (int col = 0; col < 5; col++)
-            {
-                int bit = row * 5 + col;
-                if (((glyph >> bit) & 1) == 0) continue;
-
-                int startX = x + (int)(col * scaleX);
-                int endX = x + (int)((col + 1) * scaleX);
-                int startY = y + (int)(row * scaleY);
-                int endY = y + (int)((row + 1) * scaleY);
-
-                for (int py = startY; py < endY; py++)
-                {
-                    int flippedY = texH - 1 - py;
-                    if (flippedY < 0 || flippedY >= texH) continue;
-                    for (int px = startX; px < endX; px++)
-                    {
-                        if (px < 0 || px >= texW) continue;
-                        pixels[flippedY * texW + px] = color;
-                    }
-                }
-            }
+            if (spawnedMarkers[i] != null)
+                Destroy(spawnedMarkers[i]);
         }
-    }
 
-    static ulong GetGlyph(char c)
-    {
-        // 5x7 bitmap font stored as 35-bit values (LSB = top-left)
-        switch (char.ToUpper(c))
-        {
-            case '0': return 0b01110_10001_10011_10101_11001_10001_01110UL;
-            case '1': return 0b00100_01100_00100_00100_00100_00100_01110UL;
-            case '2': return 0b01110_10001_00001_00110_01000_10000_11111UL;
-            case '3': return 0b01110_10001_00001_00110_00001_10001_01110UL;
-            case '4': return 0b00010_00110_01010_10010_11111_00010_00010UL;
-            case '5': return 0b11111_10000_11110_00001_00001_10001_01110UL;
-            case '6': return 0b00110_01000_10000_11110_10001_10001_01110UL;
-            case '7': return 0b11111_00001_00010_00100_01000_01000_01000UL;
-            case '8': return 0b01110_10001_10001_01110_10001_10001_01110UL;
-            case '9': return 0b01110_10001_10001_01111_00001_00010_01100UL;
-            case 'A': return 0b01110_10001_10001_11111_10001_10001_10001UL;
-            case 'B': return 0b11110_10001_10001_11110_10001_10001_11110UL;
-            case 'C': return 0b01110_10001_10000_10000_10000_10001_01110UL;
-            case 'D': return 0b11110_10001_10001_10001_10001_10001_11110UL;
-            case 'E': return 0b11111_10000_10000_11110_10000_10000_11111UL;
-            case 'F': return 0b11111_10000_10000_11110_10000_10000_10000UL;
-            case 'G': return 0b01110_10001_10000_10111_10001_10001_01110UL;
-            case 'H': return 0b10001_10001_10001_11111_10001_10001_10001UL;
-            case 'I': return 0b01110_00100_00100_00100_00100_00100_01110UL;
-            case 'J': return 0b00111_00010_00010_00010_10010_10010_01100UL;
-            case 'K': return 0b10001_10010_10100_11000_10100_10010_10001UL;
-            case 'L': return 0b10000_10000_10000_10000_10000_10000_11111UL;
-            case 'M': return 0b10001_11011_10101_10101_10001_10001_10001UL;
-            case 'N': return 0b10001_11001_10101_10011_10001_10001_10001UL;
-            case 'O': return 0b01110_10001_10001_10001_10001_10001_01110UL;
-            case 'P': return 0b11110_10001_10001_11110_10000_10000_10000UL;
-            case 'Q': return 0b01110_10001_10001_10001_10101_10010_01101UL;
-            case 'R': return 0b11110_10001_10001_11110_10100_10010_10001UL;
-            case 'S': return 0b01110_10001_10000_01110_00001_10001_01110UL;
-            case 'T': return 0b11111_00100_00100_00100_00100_00100_00100UL;
-            case 'U': return 0b10001_10001_10001_10001_10001_10001_01110UL;
-            case 'V': return 0b10001_10001_10001_10001_01010_01010_00100UL;
-            case 'W': return 0b10001_10001_10001_10101_10101_10101_01010UL;
-            case 'X': return 0b10001_10001_01010_00100_01010_10001_10001UL;
-            case 'Y': return 0b10001_10001_01010_00100_00100_00100_00100UL;
-            case 'Z': return 0b11111_00001_00010_00100_01000_10000_11111UL;
-            case '/': return 0b00001_00010_00010_00100_01000_01000_10000UL;
-            case ':': return 0b00000_00100_00100_00000_00100_00100_00000UL;
-            case '.': return 0b00000_00000_00000_00000_00000_01100_01100UL;
-            case '-': return 0b00000_00000_00000_11111_00000_00000_00000UL;
-            case '_': return 0b00000_00000_00000_00000_00000_00000_11111UL;
-            case '?': return 0b01110_10001_00001_00110_00100_00000_00100UL;
-            case ' ': return 0UL;
-            default:  return 0b10101_01010_10101_01010_10101_01010_10101UL; // checkerboard for unknown
-        }
+        spawnedMarkers.Clear();
     }
 
     async void OnApplicationQuit()
