@@ -359,28 +359,10 @@ public class QRDetectionRenderer : MonoBehaviour
         float centroidX = (detection.bbox[0] + detection.bbox[2]) * 0.5f;
         float centroidY = (detection.bbox[1] + detection.bbox[3]) * 0.5f;
 
-        float frameWidth = sourceTexture.width;
-        float frameHeight = sourceTexture.height;
-        float scaleX = frameWidth / Mathf.Max(1, depthFrameWidth);
-        float scaleY = frameHeight / Mathf.Max(1, depthFrameHeight);
-
-        float minColumn = cropLeft * scaleX;
-        float maxColumn = frameWidth - (cropRight * scaleX);
-        float minRow = cropTop * scaleY;
-        float maxRow = frameHeight - (cropBottom * scaleY);
-
-        if (centroidX < minColumn || centroidX > maxColumn || centroidY < minRow || centroidY > maxRow)
+        float xNorm;
+        float zNorm;
+        if (!TryGetTerrainNormalizedPosition(centroidX, centroidY, out xNorm, out zNorm))
             return false;
-
-        // TerrainEditor writes the cropped depth grid into the heightmap with row/column
-        // axes transposed, so image rows map to terrain X and image columns map to terrain Z.
-        float xNorm = Mathf.InverseLerp(minRow, maxRow, centroidY);
-        float zNorm = Mathf.InverseLerp(minColumn, maxColumn, centroidX);
-
-        if (flipX)
-            xNorm = 1f - xNorm;
-        if (flipZ)
-            zNorm = 1f - zNorm;
 
         TerrainData terrainData = terrain.terrainData;
         Vector3 terrainSize = terrainData.size;
@@ -394,12 +376,60 @@ public class QRDetectionRenderer : MonoBehaviour
         return true;
     }
 
+    bool TryGetTerrainNormalizedPosition(float imageX, float imageY, out float xNorm, out float zNorm)
+    {
+        xNorm = 0f;
+        zNorm = 0f;
+
+        if (sourceTexture == null)
+            return false;
+
+        float frameWidth = sourceTexture.width;
+        float frameHeight = sourceTexture.height;
+        float scaleX = frameWidth / Mathf.Max(1, depthFrameWidth);
+        float scaleY = frameHeight / Mathf.Max(1, depthFrameHeight);
+
+        float depthColumn = imageX / scaleX;
+        float depthRow = imageY / scaleY;
+
+        float validRowCount = depthFrameHeight - cropTop - cropBottom;
+        float validColumnCount = depthFrameWidth - cropLeft - cropRight;
+
+        // TerrainEditor writes mesh[col - cropLeft + 1, row - cropTop], so the cropped
+        // source occupies a transposed buffer with a one-column offset before resampling.
+        float localRow = depthRow - cropTop;
+        float localColumn = depthColumn - cropLeft + 1f;
+
+        if (localRow < 0f || localRow > validRowCount - 1f)
+            return false;
+        if (localColumn < 1f || localColumn > validColumnCount)
+            return false;
+
+        // Image rows map to terrain X, image columns map to terrain Z.
+        xNorm = localRow / Mathf.Max(1f, validRowCount);
+        zNorm = localColumn / Mathf.Max(1f, validColumnCount);
+
+        if (flipX)
+            xNorm = 1f - xNorm;
+        if (flipZ)
+            zNorm = 1f - zNorm;
+        return true;
+    }
+
     void SpawnDebugBoundsMarkers()
     {
-        SpawnDebugMarker(0f, 0f, "QRBounds_MinMin");
-        SpawnDebugMarker(0f, 1f, "QRBounds_MinMax");
-        SpawnDebugMarker(1f, 0f, "QRBounds_MaxMin");
-        SpawnDebugMarker(1f, 1f, "QRBounds_MaxMax");
+        float validRowCount = depthFrameHeight - cropTop - cropBottom;
+        float validColumnCount = depthFrameWidth - cropLeft - cropRight;
+
+        float minXNorm = 0f;
+        float maxXNorm = (validRowCount - 1f) / Mathf.Max(1f, validRowCount);
+        float minZNorm = 1f / Mathf.Max(1f, validColumnCount);
+        float maxZNorm = 1f;
+
+        SpawnDebugMarker(minXNorm, minZNorm, "QRBounds_MinMin");
+        SpawnDebugMarker(minXNorm, maxZNorm, "QRBounds_MinMax");
+        SpawnDebugMarker(maxXNorm, minZNorm, "QRBounds_MaxMin");
+        SpawnDebugMarker(maxXNorm, maxZNorm, "QRBounds_MaxMax");
     }
 
     void SpawnDebugMarker(float xNorm, float zNorm, string markerName)
