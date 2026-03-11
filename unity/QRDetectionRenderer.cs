@@ -25,6 +25,12 @@ public class QRDetectionRenderer : MonoBehaviour
     public Color markerColor = Color.green;
     public float markerVerticalOffset = 0.05f;
 
+    [Header("Debug Bounds")]
+    public bool showDebugBounds = true;
+    public Color debugBoundsColor = Color.blue;
+    public Vector3 debugBoundsScale = new Vector3(0.12f, 0.12f, 0.12f);
+    public float debugBoundsY = 0.5f;
+
     [Header("Depth Crop Mapping")]
     public int depthFrameWidth = 513;
     public int depthFrameHeight = 482;
@@ -49,6 +55,7 @@ public class QRDetectionRenderer : MonoBehaviour
     readonly List<QRDetection> detections = new List<QRDetection>();
     readonly object detectionsLock = new object();
     readonly List<GameObject> spawnedMarkers = new List<GameObject>();
+    readonly List<GameObject> debugMarkers = new List<GameObject>();
 
     [Serializable]
     struct QRDetection
@@ -175,6 +182,7 @@ public class QRDetectionRenderer : MonoBehaviour
             Destroy(sourceTexture);
 
         ClearMarkers();
+        ClearDebugMarkers();
     }
 
     void OnStopStreaming()
@@ -306,6 +314,7 @@ public class QRDetectionRenderer : MonoBehaviour
     {
         detectionsDirty = false;
         ClearMarkers();
+        ClearDebugMarkers();
 
         if (terrain == null)
         {
@@ -318,6 +327,9 @@ public class QRDetectionRenderer : MonoBehaviour
         }
 
         missingTerrainLogged = false;
+
+        if (showDebugBounds)
+            SpawnDebugBoundsMarkers();
 
         List<QRDetection> currentDetections;
         lock (detectionsLock)
@@ -352,16 +364,18 @@ public class QRDetectionRenderer : MonoBehaviour
         float scaleX = frameWidth / Mathf.Max(1, depthFrameWidth);
         float scaleY = frameHeight / Mathf.Max(1, depthFrameHeight);
 
-        float minX = cropLeft * scaleX;
-        float maxX = frameWidth - 1f - (cropRight * scaleX);
-        float minY = cropTop * scaleY;
-        float maxY = frameHeight - 1f - (cropBottom * scaleY);
+        float minColumn = cropLeft * scaleX;
+        float maxColumn = frameWidth - (cropRight * scaleX);
+        float minRow = cropTop * scaleY;
+        float maxRow = frameHeight - (cropBottom * scaleY);
 
-        if (centroidX < minX || centroidX > maxX || centroidY < minY || centroidY > maxY)
+        if (centroidX < minColumn || centroidX > maxColumn || centroidY < minRow || centroidY > maxRow)
             return false;
 
-        float xNorm = Mathf.InverseLerp(minX, maxX, centroidX);
-        float zNorm = Mathf.InverseLerp(minY, maxY, centroidY);
+        // TerrainEditor writes the cropped depth grid into the heightmap with row/column
+        // axes transposed, so image rows map to terrain X and image columns map to terrain Z.
+        float xNorm = Mathf.InverseLerp(minRow, maxRow, centroidY);
+        float zNorm = Mathf.InverseLerp(minColumn, maxColumn, centroidX);
 
         if (flipX)
             xNorm = 1f - xNorm;
@@ -378,6 +392,46 @@ public class QRDetectionRenderer : MonoBehaviour
 
         worldPosition = new Vector3(worldX, worldY, worldZ);
         return true;
+    }
+
+    void SpawnDebugBoundsMarkers()
+    {
+        SpawnDebugMarker(0f, 0f, "QRBounds_MinMin");
+        SpawnDebugMarker(0f, 1f, "QRBounds_MinMax");
+        SpawnDebugMarker(1f, 0f, "QRBounds_MaxMin");
+        SpawnDebugMarker(1f, 1f, "QRBounds_MaxMax");
+    }
+
+    void SpawnDebugMarker(float xNorm, float zNorm, string markerName)
+    {
+        if (flipX)
+            xNorm = 1f - xNorm;
+        if (flipZ)
+            zNorm = 1f - zNorm;
+
+        TerrainData terrainData = terrain.terrainData;
+        Vector3 terrainSize = terrainData.size;
+        Vector3 terrainPos = terrain.GetPosition();
+
+        float worldX = terrainPos.x + xNorm * terrainSize.x;
+        float worldZ = terrainPos.z + zNorm * terrainSize.z;
+        Vector3 worldPosition = new Vector3(worldX, debugBoundsY, worldZ);
+
+        GameObject marker = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        marker.name = markerName;
+        marker.transform.SetParent(markerParent, true);
+        marker.transform.position = worldPosition;
+        marker.transform.localScale = debugBoundsScale;
+
+        var markerRenderer = marker.GetComponent<Renderer>();
+        if (markerRenderer != null)
+            markerRenderer.material.color = debugBoundsColor;
+
+        var markerCollider = marker.GetComponent<Collider>();
+        if (markerCollider != null)
+            markerCollider.enabled = false;
+
+        debugMarkers.Add(marker);
     }
 
     void SpawnMarker(Vector3 position, QRDetection detection, int index)
@@ -419,6 +473,17 @@ public class QRDetectionRenderer : MonoBehaviour
         }
 
         spawnedMarkers.Clear();
+    }
+
+    void ClearDebugMarkers()
+    {
+        for (int i = 0; i < debugMarkers.Count; i++)
+        {
+            if (debugMarkers[i] != null)
+                Destroy(debugMarkers[i]);
+        }
+
+        debugMarkers.Clear();
     }
 
     async void OnApplicationQuit()
