@@ -1,0 +1,75 @@
+using System.IO;
+using UnityEditor;
+using UnityEngine;
+
+public sealed class QRManualImageLoaderWindow : EditorWindow
+{
+    const string Title = "QR Debug Image Loader";
+
+    Vector2 scrollPosition;
+
+    [MenuItem("Window/QR/Debug Image Loader")]
+    static void OpenWindow()
+    {
+        GetWindow<QRManualImageLoaderWindow>(Title);
+    }
+
+    void OnGUI()
+    {
+        EditorGUILayout.LabelField("Manual QR Image Loader", EditorStyles.boldLabel);
+        EditorGUILayout.HelpBox("Load a still image when the camera feed is unavailable. Enable debug mode on QRDetectionRenderer to use this texture.", MessageType.Info);
+
+        using (new EditorGUILayout.HorizontalScope())
+        {
+            if (GUILayout.Button("Load Image", GUILayout.Height(28f)))
+                LoadImageFromDisk();
+
+            if (GUILayout.Button("Clear", GUILayout.Height(28f)))
+            {
+                QRDebugImageStore.Clear();
+                Repaint();
+            }
+        }
+
+        Texture2D texture = QRDebugImageStore.SourceTexture;
+        string sourceLabel = string.IsNullOrEmpty(QRDebugImageStore.SourceLabel) ? "No image loaded" : QRDebugImageStore.SourceLabel;
+        EditorGUILayout.Space();
+        EditorGUILayout.LabelField("Current Image", sourceLabel);
+
+        if (texture == null)
+            return;
+
+        EditorGUILayout.LabelField(string.Format("{0} x {1}", texture.width, texture.height));
+
+        scrollPosition = EditorGUILayout.BeginScrollView(scrollPosition);
+        Rect previewRect = GUILayoutUtility.GetAspectRect((float)texture.width / texture.height, GUILayout.ExpandWidth(true));
+        EditorGUI.DrawPreviewTexture(previewRect, texture, null, ScaleMode.ScaleToFit);
+        EditorGUILayout.EndScrollView();
+    }
+
+    void LoadImageFromDisk()
+    {
+        string path = EditorUtility.OpenFilePanel("Load QR Debug Image", Application.dataPath, "png,jpg,jpeg");
+        if (string.IsNullOrEmpty(path))
+            return;
+
+        byte[] imageBytes;
+        try
+        {
+            imageBytes = File.ReadAllBytes(path);
+        }
+        catch (IOException exception)
+        {
+            Debug.LogException(exception);
+            return;
+        }
+
+        if (!QRDebugImageStore.TrySetImage(imageBytes, Path.GetFileName(path)))
+        {
+            Debug.LogError("QRManualImageLoaderWindow: Failed to load image.");
+            return;
+        }
+
+        Repaint();
+    }
+}
