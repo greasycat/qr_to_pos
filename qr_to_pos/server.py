@@ -9,6 +9,7 @@ from typing import Any
 
 import cv2
 import numpy as np
+import yaml
 from pyzbar.pyzbar import decode as pyzbar_decode
 from qrdet import QRDetector
 from websockets.asyncio.server import serve
@@ -20,12 +21,14 @@ from .registration import (
     detect_box_corners_depth,
     load_registration,
     save_registration,
+    transform_points,
     transform_bbox_to_depth,
 )
 
 _DEFAULT_REGISTRATION_PATH = (
     Path(__file__).resolve().parent.parent / "assets" / "registration" / "homography.npy"
 )
+_DEFAULT_REGISTRATION_COORDS_PATH = _DEFAULT_REGISTRATION_PATH.with_name("coords.yml")
 
 
 class DetectionServer:
@@ -38,12 +41,16 @@ class DetectionServer:
         model_size: str = "s",
         max_size: int = 16 * 1024 * 1024,
         registration_path: str | Path = _DEFAULT_REGISTRATION_PATH,
+        registration_coords_path: str | Path | None = None,
     ) -> None:
         self.host = host
         self.port = port
         self.max_size = max_size
         self.detector = QRDetector(model_size=model_size)
         self.registration_path = Path(registration_path)
+        if registration_coords_path is None:
+            registration_coords_path = self.registration_path.with_name(_DEFAULT_REGISTRATION_COORDS_PATH.name)
+        self.registration_coords_path = Path(registration_coords_path)
 
     def detect(self, image: np.ndarray) -> list[QRCode]:
         detections = self.detector.detect(image=image, is_bgr=True)
@@ -103,6 +110,11 @@ class DetectionServer:
             return None
         return [[float(x), float(y)] for x, y in pts]
 
+    def _serialize_point(self, pt: np.ndarray | None) -> list[float] | None:
+        if pt is None:
+            return None
+        return [float(pt[0]), float(pt[1])]
+
     def _serialize_matrix(self, matrix: np.ndarray | None) -> list[list[float]] | None:
         if matrix is None:
             return None
@@ -113,18 +125,85 @@ class DetectionServer:
             return None
         return load_registration(str(self.registration_path))
 
+    def _load_registration_depth_corners(self) -> np.ndarray | None:
+        if not self.registration_coords_path.exists():
+            return None
+
+        with self.registration_coords_path.open("r", encoding="utf-8") as handle:
+            payload = yaml.safe_load(handle) or {}
+
+        depth_corners = payload.get("depth_corners")
+        if not isinstance(depth_corners, list) or len(depth_corners) != 4:
+            return None
+
+        try:
+            points = np.asarray(depth_corners, dtype=np.float64)
+        except (TypeError, ValueError):
+            return None
+
+        if points.shape != (4, 2):
+            return None
+        return points
+
+    def _compute_polygon_centroid(self, pts: np.ndarray) -> np.ndarray | None:
+        if pts.size == 0:
+            return None
+
+        x = pts[:, 0]
+        y = pts[:, 1]
+        x_next = np.roll(x, -1)
+        y_next = np.roll(y, -1)
+        cross = x * y_next - x_next * y
+        signed_area = float(np.sum(cross) * 0.5)
+
+        if np.isclose(signed_area, 0.0):
+            return np.mean(pts, axis=0)
+
+        centroid_x = float(np.sum((x + x_next) * cross) / (6.0 * signed_area))
+        centroid_y = float(np.sum((y + y_next) * cross) / (6.0 * signed_area))
+        return np.array([centroid_x, centroid_y], dtype=np.float64)
+
+    def _compute_depth_centroid_pct(
+        self,
+        depth_bbox: np.ndarray | None,
+        depth_corners: np.ndarray | None,
+    ) -> np.ndarray | None:
+        if depth_bbox is None or depth_corners is None:
+            return None
+
+        centroid = self._compute_polygon_centroid(depth_bbox)
+        if centroid is None:
+            return None
+
+        rect_space = np.array(
+            [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]],
+            dtype=np.float32,
+        )
+        depth_to_rect = compute_homography(depth_corners.astype(np.float32), rect_space)
+        normalized = transform_points(np.array([centroid], dtype=np.float64), depth_to_rect)[0]
+        if not np.all(np.isfinite(normalized)):
+            return None
+        return np.round(normalized * 100.0, 4)
+
     def _serialize_detection(
         self,
         qr: QRCode,
         homography: np.ndarray | None,
+        depth_corners: np.ndarray | None,
     ) -> dict[str, Any]:
         detection = asdict(qr)
         serialized_homography = self._serialize_matrix(homography)
         detection["homography"] = serialized_homography
         detection["depth_bbox"] = None
+        detection["depth_centroid"] = None
+        detection["depth_centroid_pct"] = None
         if homography is not None and qr.bbox is not None:
-            detection["depth_bbox"] = self._serialize_points(
-                transform_bbox_to_depth(list(qr.bbox), homography)
+            depth_bbox = transform_bbox_to_depth(list(qr.bbox), homography)
+            depth_centroid = self._compute_polygon_centroid(depth_bbox)
+            detection["depth_bbox"] = self._serialize_points(depth_bbox)
+            detection["depth_centroid"] = self._serialize_point(depth_centroid)
+            detection["depth_centroid_pct"] = self._serialize_point(
+                self._compute_depth_centroid_pct(depth_bbox, depth_corners)
             )
         return detection
 
@@ -133,10 +212,11 @@ class DetectionServer:
         qr_codes = self.detect(image)
         processing_time = time.perf_counter() - start
         homography = self._load_registration_matrix()
+        depth_corners = self._load_registration_depth_corners()
         return {
             "action": "detect",
             "homography": self._serialize_matrix(homography),
-            "detections": [self._serialize_detection(qr, homography) for qr in qr_codes],
+            "detections": [self._serialize_detection(qr, homography, depth_corners) for qr in qr_codes],
             "count": len(qr_codes),
             "processing_time": round(processing_time, 4),
         }

@@ -288,7 +288,7 @@
             <div class="grid-2">
               <div class="stack">
                 <div class="toolbar">
-                  <input type="file" id="det-file-input" accept="image/*" />
+                  <input type="file" id="det-upload-input" accept="image/*,.txt,text/plain" multiple />
                   <button class="btn-secondary" id="btn-load-test" type="button">Load Test Image</button>
                   <button class="btn-success" id="btn-detect" type="button" disabled>Detect</button>
                 </div>
@@ -310,9 +310,12 @@
                   <div class="placeholder" id="det-canvas-placeholder">Run detection to see bounding boxes.</div>
                   <canvas id="det-result-canvas" style="display:none"></canvas>
                 </div>
+                <div class="toolbar">
+                  <button class="btn-secondary" id="btn-load-depth-bg-sample" type="button">Load Sample Depth Background</button>
+                </div>
                 <div class="surface">
                   <h3>Projected Depth BBox</h3>
-                  <p>Blue polygons show the server-returned `depth_bbox` projected into the registered depth frame.</p>
+                  <p>Blue polygons show the server-returned `depth_bbox` projected into the selected validation background.</p>
                   <div class="placeholder" id="det-depth-placeholder">Waiting for detection result and depth reference.</div>
                   <canvas id="det-depth-canvas" style="display:none"></canvas>
                 </div>
@@ -332,6 +335,7 @@
                         <th>Confidence</th>
                         <th>BBox</th>
                         <th>Depth BBox</th>
+                        <th>Depth Centroid %</th>
                       </tr>
                     </thead>
                     <tbody id="det-tbody"></tbody>
@@ -349,8 +353,7 @@
           </summary>
           <div class="panel-body">
             <div class="toolbar">
-              <input type="file" id="reg-color-input" accept="image/*" />
-              <input type="file" id="reg-depth-input" accept=".txt,text/plain" />
+              <input type="file" id="reg-upload-input" accept="image/*,.txt,text/plain" multiple />
               <button class="btn-secondary" id="btn-load-registration-sample" type="button">Load Sample Pair</button>
             </div>
 
@@ -393,6 +396,7 @@
     const TEST_IMAGE_URL = {{ test_image_url|tojson }};
     const REGISTRATION_SAMPLE_URL = {{ registration_sample_url|tojson }};
     const REGISTRATION_DEPTH_TEXT_URL = {{ registration_depth_text_url|tojson }};
+    const REGISTRATION_COORDS_URL = {{ registration_coords_url|tojson }};
     const CORNER_LABELS = ['TL', 'TR', 'BR', 'BL'];
     const CORNER_COLORS = ['#38bdf8', '#f59e0b', '#ef4444', '#22c55e'];
 
@@ -402,7 +406,7 @@
     let updatingRegistration = false;
 
     let detectionImage = null;
-    let detectionDepthRaster = null;
+    let detectionDepthBackground = null;
 
     const registrationState = {
       colorImage: null,
@@ -500,9 +504,9 @@
       });
     }
 
-    async function ensureDetectionDepthRaster() {
-      if (detectionDepthRaster) {
-        return detectionDepthRaster;
+    async function ensureDetectionDepthBackground() {
+      if (detectionDepthBackground) {
+        return detectionDepthBackground;
       }
       const depthText = await fetch(REGISTRATION_DEPTH_TEXT_URL).then((resp) => {
         if (!resp.ok) {
@@ -510,8 +514,12 @@
         }
         return resp.text();
       });
-      detectionDepthRaster = parseDepthText(depthText);
-      return detectionDepthRaster;
+      detectionDepthBackground = {
+        kind: 'raster',
+        label: 'sample depth reference',
+        raster: parseDepthText(depthText),
+      };
+      return detectionDepthBackground;
     }
 
     function fileToDataUrl(file) {
@@ -521,6 +529,22 @@
         reader.onerror = () => reject(new Error(`Failed to read file: ${file.name}`));
         reader.readAsDataURL(file);
       });
+    }
+
+    function getFileExtension(file) {
+      const name = file?.name || '';
+      const dotIndex = name.lastIndexOf('.');
+      return dotIndex >= 0 ? name.slice(dotIndex + 1).toLowerCase() : '';
+    }
+
+    function isTextFile(file) {
+      return file?.type === 'text/plain' || getFileExtension(file) === 'txt';
+    }
+
+    function isImageFile(file) {
+      const extension = getFileExtension(file);
+      return file?.type?.startsWith('image/')
+        || ['png', 'jpg', 'jpeg', 'bmp', 'gif', 'webp'].includes(extension);
     }
 
     function imageToBase64(image) {
@@ -556,11 +580,66 @@
       updateActionButtons();
     }
 
-    async function onDetectionFileChange(event) {
-      const file = event.target.files[0];
-      if (!file) return;
+    async function loadDetectionImageFromFile(file) {
       const dataUrl = await fileToDataUrl(file);
       await loadDetectionImageFromUrl(dataUrl);
+    }
+
+    async function onDetectionUploadChange(event) {
+      const files = Array.from(event.target.files || []).slice(0, 2);
+      if (files.length < 2) {
+        alert('Detection upload failed: select two files in the first two slots.');
+        return;
+      }
+
+      const imageFiles = files.filter((file) => isImageFile(file));
+      const textFiles = files.filter((file) => isTextFile(file));
+
+      let sourceFile = null;
+      let backgroundFile = null;
+
+      if (textFiles.length > 0) {
+        sourceFile = imageFiles[0] || null;
+        backgroundFile = textFiles[0] || null;
+      } else {
+        sourceFile = isImageFile(files[0]) ? files[0] : null;
+        backgroundFile = isImageFile(files[1]) ? files[1] : null;
+      }
+
+      if (!sourceFile || !backgroundFile) {
+        alert('Detection upload failed: the first two files must include a source image and a validation background.');
+        return;
+      }
+
+      await loadDetectionImageFromFile(sourceFile);
+      await setDetectionDepthBackgroundFromFile(backgroundFile);
+      setSectionStatus(
+        'det-status',
+        `Loaded detection source ${sourceFile.name} and validation background ${backgroundFile.name}.`,
+        'success',
+      );
+      renderDetectionDepthCanvas([]);
+    }
+
+    async function setDetectionDepthBackgroundFromFile(file) {
+      const name = file.name || 'uploaded background';
+      const isText = file.type === 'text/plain' || name.toLowerCase().endsWith('.txt');
+
+      if (isText) {
+        detectionDepthBackground = {
+          kind: 'raster',
+          label: name,
+          raster: parseDepthText(await file.text()),
+        };
+        return;
+      }
+
+      const dataUrl = await fileToDataUrl(file);
+      detectionDepthBackground = {
+        kind: 'image',
+        label: name,
+        image: await loadImageElementFromUrl(dataUrl),
+      };
     }
 
     async function detect() {
@@ -617,17 +696,23 @@
       const placeholder = $('det-depth-placeholder');
       const ctx = canvas.getContext('2d');
 
-      if (!detectionDepthRaster) {
+      if (!detectionDepthBackground) {
         canvas.style.display = 'none';
-        placeholder.textContent = 'Depth reference is unavailable.';
+        placeholder.textContent = 'Validation background is unavailable.';
         placeholder.style.display = 'flex';
         return;
       }
 
-      const rasterCanvas = depthRasterToCanvas(detectionDepthRaster);
-      canvas.width = rasterCanvas.width;
-      canvas.height = rasterCanvas.height;
-      ctx.drawImage(rasterCanvas, 0, 0);
+      if (detectionDepthBackground.kind === 'raster') {
+        const rasterCanvas = depthRasterToCanvas(detectionDepthBackground.raster);
+        canvas.width = rasterCanvas.width;
+        canvas.height = rasterCanvas.height;
+        ctx.drawImage(rasterCanvas, 0, 0);
+      } else {
+        canvas.width = detectionDepthBackground.image.naturalWidth;
+        canvas.height = detectionDepthBackground.image.naturalHeight;
+        ctx.drawImage(detectionDepthBackground.image, 0, 0);
+      }
 
       ctx.lineWidth = Math.max(2, Math.round(canvas.width / 400));
       ctx.font = `bold ${Math.max(14, Math.round(canvas.width / 70))}px monospace`;
@@ -693,7 +778,12 @@
           ? det.depth_bbox.map((point) => `(${Number(point[0]).toFixed(1)}, ${Number(point[1]).toFixed(1)})`).join(' ')
           : '-';
 
-        row.append(idx, decoded, confidence, bbox, depthBbox);
+        const depthCentroidPct = document.createElement('td');
+        depthCentroidPct.textContent = det.depth_centroid_pct
+          ? `(${Number(det.depth_centroid_pct[0]).toFixed(1)}%, ${Number(det.depth_centroid_pct[1]).toFixed(1)}%)`
+          : '-';
+
+        row.append(idx, decoded, confidence, bbox, depthBbox, depthCentroidPct);
         tbody.appendChild(row);
       });
 
@@ -903,6 +993,30 @@
       setRegistrationDepthText(text);
     }
 
+    async function onRegistrationUploadChange(event) {
+      const files = Array.from(event.target.files || []).slice(0, 2);
+      if (files.length < 2) {
+        alert('Registration upload failed: select one image and one depth TXT in the first two files.');
+        return;
+      }
+
+      const imageFile = files.find((file) => isImageFile(file)) || null;
+      const textFile = files.find((file) => isTextFile(file)) || null;
+
+      if (!imageFile || !textFile) {
+        alert('Registration upload failed: the first two files must include one image and one depth TXT.');
+        return;
+      }
+
+      await setRegistrationColorFromFile(imageFile);
+      await setRegistrationDepthFromFile(textFile);
+      setSectionStatus(
+        'reg-status',
+        `Loaded registration image ${imageFile.name} and depth TXT ${textFile.name}.`,
+        'success',
+      );
+    }
+
     async function loadRegistrationSample() {
       const response = await fetch(REGISTRATION_SAMPLE_URL);
       const payload = await response.json();
@@ -1012,6 +1126,22 @@
       return matrix.map((row) => row.map((value) => Number(value).toFixed(6)).join('  ')).join('\n');
     }
 
+    async function saveConfirmedCoordinates() {
+      const response = await fetch(REGISTRATION_COORDS_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          color_corners: normalizeCorners(registrationState.colorCorners),
+          depth_corners: normalizeCorners(registrationState.depthCorners),
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload.error || 'Failed to save confirmed coordinates.');
+      }
+      return payload;
+    }
+
     async function updateRegistration() {
       if (!isSocketOpen() || updatingRegistration) return;
       if (registrationState.colorCorners.length !== 4 || registrationState.depthCorners.length !== 4) {
@@ -1052,12 +1182,19 @@
       setSectionStatus('reg-status', 'Auto-detected corners loaded. Drag points to refine if needed.', 'success');
     }
 
-    function handleRegistrationUpdateResponse(data) {
+    async function handleRegistrationUpdateResponse(data) {
       updatingRegistration = false;
       $('reg-matrix').textContent = formatMatrix(data.homography || []);
       updateActionButtons();
-      const savedPath = data.saved_path ? ` Saved to ${data.saved_path}.` : '';
-      setSectionStatus('reg-status', `Registration updated.${savedPath}`, 'success');
+      try {
+        const coordsPayload = await saveConfirmedCoordinates();
+        const savedPath = data.saved_path ? ` Homography saved to ${data.saved_path}.` : '';
+        const coordsPath = coordsPayload.saved_path ? ` Coordinates saved to ${coordsPayload.saved_path}.` : '';
+        setSectionStatus('reg-status', `Registration updated.${savedPath}${coordsPath}`, 'success');
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        setSectionStatus('reg-status', `Registration updated, but coordinate export failed: ${message}`, 'warn');
+      }
     }
 
     function handleServerMessage(raw) {
@@ -1089,7 +1226,7 @@
       }
 
       if (data.action === 'update_registration') {
-        handleRegistrationUpdateResponse(data);
+        void handleRegistrationUpdateResponse(data);
         return;
       }
 
@@ -1099,22 +1236,32 @@
     $('btn-connect').addEventListener('click', connect);
     $('btn-disconnect').addEventListener('click', disconnect);
     $('btn-load-test').addEventListener('click', () => loadDetectionImageFromUrl(TEST_IMAGE_URL));
-    $('det-file-input').addEventListener('change', (event) => void onDetectionFileChange(event));
-    $('btn-detect').addEventListener('click', () => void detect());
-    $('reg-color-input').addEventListener('change', async (event) => {
-      const file = event.target.files[0];
-      if (!file) return;
-      await setRegistrationColorFromFile(file);
-      setSectionStatus('reg-status', 'Loaded color image for registration.', 'success');
-    });
-    $('reg-depth-input').addEventListener('change', async (event) => {
-      const file = event.target.files[0];
-      if (!file) return;
+    $('det-upload-input').addEventListener('change', async (event) => {
       try {
-        await setRegistrationDepthFromFile(file);
-        setSectionStatus('reg-status', 'Loaded depth TXT for registration.', 'success');
+        await onDetectionUploadChange(event);
       } catch (error) {
-        setSectionStatus('reg-status', error.message, 'error');
+        const message = error instanceof Error ? error.message : String(error);
+        setSectionStatus('det-status', `Failed to load detection files: ${message}`, 'error');
+      }
+    });
+    $('btn-load-depth-bg-sample').addEventListener('click', async () => {
+      try {
+        detectionDepthBackground = null;
+        await ensureDetectionDepthBackground();
+        setSectionStatus('det-status', 'Loaded sample depth background.', 'success');
+        renderDetectionDepthCanvas([]);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        setSectionStatus('det-status', message, 'error');
+      }
+    });
+    $('btn-detect').addEventListener('click', () => void detect());
+    $('reg-upload-input').addEventListener('change', async (event) => {
+      try {
+        await onRegistrationUploadChange(event);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        setSectionStatus('reg-status', `Failed to load registration files: ${message}`, 'error');
       }
     });
     $('btn-load-registration-sample').addEventListener('click', () => void loadRegistrationSample());
@@ -1124,7 +1271,7 @@
 
     attachCornerEditor('reg-color-canvas', 'color');
     attachCornerEditor('reg-depth-canvas', 'depth');
-    void ensureDetectionDepthRaster().catch((error) => {
+    void ensureDetectionDepthBackground().catch((error) => {
       $('det-depth-placeholder').textContent = error.message;
     });
     updateActionButtons();

@@ -1,11 +1,29 @@
-from flask import Flask, jsonify, render_template, send_file, url_for
-from pathlib import Path
 import argparse
+from pathlib import Path
+
+import yaml
+from flask import Flask, jsonify, render_template, request, send_file, url_for
 
 PROJECT_ROOT = Path(__file__).parent.parent
 ASSETS_DIR = PROJECT_ROOT / "assets"
 REGISTRATION_DIR = ASSETS_DIR / "registration"
+REGISTRATION_COORDS_PATH = REGISTRATION_DIR / "coords.yml"
 app = Flask(__name__)
+
+
+def _normalize_corners(payload: object, field_name: str) -> list[list[float]]:
+    if not isinstance(payload, list) or len(payload) != 4:
+        raise ValueError(f"Field '{field_name}' must be a list of 4 [x, y] points")
+
+    normalized: list[list[float]] = []
+    for point in payload:
+        if not isinstance(point, list) or len(point) != 2:
+            raise ValueError(f"Each point in '{field_name}' must be a [x, y] pair")
+        x, y = point
+        if not isinstance(x, int | float) or not isinstance(y, int | float):
+            raise ValueError(f"Each coordinate in '{field_name}' must be numeric")
+        normalized.append([float(x), float(y)])
+    return normalized
 
 
 @app.route("/")
@@ -16,6 +34,7 @@ def index():
         test_image_url=url_for("test_image"),
         registration_sample_url=url_for("registration_sample"),
         registration_depth_text_url=url_for("registration_depth_text"),
+        registration_coords_url=url_for("save_registration_coords"),
     )
 
 
@@ -42,6 +61,38 @@ def registration_color_image():
 @app.route("/registration-depth-text")
 def registration_depth_text():
     return send_file(REGISTRATION_DIR / "1.txt", mimetype="text/plain")
+
+
+@app.route("/registration-coords", methods=["POST"])
+def save_registration_coords():
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"error": "Expected a JSON object body"}), 400
+
+    try:
+        color_corners = _normalize_corners(payload.get("color_corners"), "color_corners")
+        depth_corners = _normalize_corners(payload.get("depth_corners"), "depth_corners")
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    REGISTRATION_COORDS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with REGISTRATION_COORDS_PATH.open("w", encoding="utf-8") as handle:
+        yaml.safe_dump(
+            {
+                "color_corners": color_corners,
+                "depth_corners": depth_corners,
+            },
+            handle,
+            sort_keys=False,
+        )
+
+    return jsonify(
+        {
+            "saved_path": str(REGISTRATION_COORDS_PATH),
+            "color_corners": color_corners,
+            "depth_corners": depth_corners,
+        }
+    )
 
 
 if __name__ == "__main__":

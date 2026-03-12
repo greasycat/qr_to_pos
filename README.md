@@ -76,7 +76,7 @@ Supported WebSocket request styles:
 Response behavior:
 
 - `detect` returns `action`, `homography`, `detections`, `count`, and `processing_time`
-- Each detection may include `bbox`, `confidence`, `decoded`, `homography`, and `depth_bbox`
+- Each detection may include `bbox`, `confidence`, `decoded`, `homography`, `depth_bbox`, `depth_centroid`, and `depth_centroid_pct`
 - Invalid JSON or missing fields return JSON errors
 
 ## Flask Backend

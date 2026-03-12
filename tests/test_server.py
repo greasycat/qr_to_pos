@@ -5,6 +5,7 @@ import sys
 import cv2
 import numpy as np
 import pytest
+import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -66,6 +67,8 @@ def test_detect_qrs_from_image(stubbed_server):
         assert det["confidence"] > 0
         assert det["homography"] is None
         assert det["depth_bbox"] is None
+        assert det["depth_centroid"] is None
+        assert det["depth_centroid_pct"] is None
 
         # pyzbar should have decoded at least some of them
     decoded_values = [d["decoded"] for d in result["detections"] if d["decoded"]]
@@ -79,6 +82,7 @@ def test_detect_qrs_includes_registration_projection(monkeypatch, tmp_path):
     monkeypatch.setattr("qr_to_pos.server.pyzbar_decode", lambda _crop: [_DummyDecode(b"stubbed-qr")])
 
     registration_path = tmp_path / "homography.npy"
+    coords_path = tmp_path / "coords.yml"
     homography = np.array(
         [
             [1.0, 0.0, 100.0],
@@ -87,6 +91,20 @@ def test_detect_qrs_includes_registration_projection(monkeypatch, tmp_path):
         ]
     )
     np.save(registration_path, homography)
+    coords_path.write_text(
+        yaml.safe_dump(
+            {
+                "depth_corners": [
+                    [100.0, 200.0],
+                    [200.0, 200.0],
+                    [200.0, 300.0],
+                    [100.0, 300.0],
+                ]
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
 
     server = DetectionServer(
         host="localhost",
@@ -109,6 +127,8 @@ def test_detect_qrs_includes_registration_projection(monkeypatch, tmp_path):
         [196.0, 304.0],
         [112.0, 304.0],
     ]
+    assert detection["depth_centroid"] == [154.0, 261.0]
+    assert detection["depth_centroid_pct"] == [54.0, 61.0]
 
 
 def test_update_corners_action(monkeypatch):
