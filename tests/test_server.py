@@ -269,6 +269,44 @@ def test_detect_request_flips_image_horizontally_when_requested(monkeypatch, tmp
     np.testing.assert_array_equal(detector.last_image, expected)
 
 
+def test_detect_response_flips_projected_percentage_horizontally(monkeypatch, tmp_path):
+    monkeypatch.setattr("qr_to_pos.server.QRDetector", lambda model_size="s": _DummyDetector())
+    monkeypatch.setattr("qr_to_pos.server.pyzbar_decode", lambda _crop: [])
+
+    registration_path = tmp_path / "homography.npy"
+    coords_path = tmp_path / "coords.yml"
+    homography = np.eye(3)
+    np.save(registration_path, homography)
+    coords_path.write_text(
+        yaml.safe_dump(
+            {
+                "depth_corners": [
+                    [0.0, 0.0],
+                    [100.0, 0.0],
+                    [100.0, 100.0],
+                    [0.0, 100.0],
+                ]
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    server = DetectionServer(
+        host="localhost",
+        port=0,
+        model_size="s",
+        registration_path=registration_path,
+    )
+
+    image = np.zeros((80, 100, 3), dtype=np.uint8)
+    unflipped = server.detect_response(image, flip_horizontal=False)
+    flipped = server.detect_response(image, flip_horizontal=True)
+
+    assert unflipped["detections"][0]["depth_centroid_pct"] == [54.0, 61.0]
+    assert flipped["detections"][0]["depth_centroid_pct"] == [46.0, 61.0]
+
+
 def test_compute_depth_centroid_pct_returns_none_outside_registered_bounds(monkeypatch):
     monkeypatch.setattr("qr_to_pos.server.QRDetector", lambda model_size="s": _DummyDetector())
     server = DetectionServer(host="localhost", port=0, model_size="s")
