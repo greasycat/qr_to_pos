@@ -262,6 +262,7 @@ class DetectionServer:
             action = "detect"
 
         if action == "detect":
+            print("Detect request receieved")
             image_b64 = payload.get("image")
             if image_b64 is None:
                 raise ValueError("Missing 'image' field")
@@ -269,6 +270,7 @@ class DetectionServer:
             return self.detect_response(image)
 
         if action == "update_corners":
+            print("Corner update request receieved")
             image_b64 = payload.get("color_image")
             depth_text = payload.get("depth_text")
             if image_b64 is None:

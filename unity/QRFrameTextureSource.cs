@@ -35,12 +35,17 @@ public sealed class QRFrameTextureSource : IDisposable
 
     public void PumpLatestFrame(FilterMode filterMode, Action<Texture2D> onTextureUpdated)
     {
-        if (queue == null)
+        if (queue == null){
+            // Debug.Log("queue null");
             return;
+        }
 
         VideoFrame frame;
         if (!queue.PollForFrame<VideoFrame>(out frame))
+        {
+            // Debug.Log("wait for polling info");
             return;
+        }
 
         using (frame)
         {
@@ -67,6 +72,7 @@ public sealed class QRFrameTextureSource : IDisposable
 
     void OnStartStreaming(PipelineProfile activeProfile)
     {
+        Debug.Log("OnStartStreaming in QRFrame");
         DisposeQueue();
         queue = new FrameQueue(1);
         matcher = new Predicate<Frame>(Matches);

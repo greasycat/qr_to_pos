@@ -1,8 +1,8 @@
 depth_clip:
-  min: 1.055
-  max: 1.255
+  min: 0.866
+  max: 1.311
 depth_contour:
   morph_kernel: 7
   erode_kernel: 9
   min_component_area: 1150
-  eps: 0.035
+  eps: 0.025
