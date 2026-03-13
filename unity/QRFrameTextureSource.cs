@@ -24,6 +24,11 @@ public sealed class QRFrameTextureSource : IDisposable
 
     public void Initialize()
     {
+        DisposeQueue();
+        queue = new FrameQueue(1);
+        matcher = new Predicate<Frame>(Matches);
+        source.OnNewSample -= OnNewSample;
+        source.OnNewSample += OnNewSample;
         source.OnStart += OnStartStreaming;
         source.OnStop += OnStopStreaming;
     }

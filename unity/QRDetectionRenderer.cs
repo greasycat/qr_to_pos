@@ -74,6 +74,9 @@ public class QRDetectionRenderer : MonoBehaviour
         detectionsDirty = true;
         TerrainEvents.OnHeightmapChanged += HandleTerrainHeightmapChanged;
 
+        if (!debugMode)
+            TryInitializeLiveFrameSource();
+
         detectionClient = new QRDetectionWebSocketClient(serverUrl, HandleDetectionResponse);
 
         try
