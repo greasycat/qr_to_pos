@@ -1,4 +1,5 @@
 import base64
+import json
 from pathlib import Path
 import sys
 
@@ -129,6 +130,98 @@ def test_detect_qrs_includes_registration_projection(monkeypatch, tmp_path):
     ]
     assert detection["depth_centroid"] == [154.0, 261.0]
     assert detection["depth_centroid_pct"] == [54.0, 61.0]
+
+
+def test_detect_request_saves_debug_capture_from_config(monkeypatch, tmp_path):
+    monkeypatch.setattr("qr_to_pos.server.QRDetector", lambda model_size="s": _DummyDetector())
+    monkeypatch.setattr("qr_to_pos.server.pyzbar_decode", lambda _crop: [_DummyDecode(b"stubbed-qr")])
+
+    registration_path = tmp_path / "homography.npy"
+    config_path = tmp_path / "config.yml"
+    capture_dir = tmp_path / "captures"
+    config_path.write_text(
+        yaml.safe_dump(
+            {
+                "ws_debug": {
+                    "save_decoding_images": True,
+                    "max_saved_images": 2,
+                }
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    server = DetectionServer(
+        host="localhost",
+        port=0,
+        model_size="s",
+        registration_path=registration_path,
+        debug_capture_dir=capture_dir,
+    )
+
+    image = server.decode_image(IMAGE_PATH.read_bytes())
+    response = server.process_detect_request(image, request_source="json")
+
+    capture_dirs = sorted(path for path in capture_dir.iterdir() if path.is_dir())
+    assert len(capture_dirs) == 1
+
+    saved_capture_dir = capture_dirs[0]
+    assert (saved_capture_dir / "input.png").exists()
+    assert (saved_capture_dir / "response.json").exists()
+    assert (saved_capture_dir / "metadata.yml").exists()
+
+    saved_response = json.loads((saved_capture_dir / "response.json").read_text(encoding="utf-8"))
+    assert saved_response["count"] == response["count"]
+    assert saved_response["detections"][0]["decoded"] == "stubbed-qr"
+
+    metadata = yaml.safe_load((saved_capture_dir / "metadata.yml").read_text(encoding="utf-8"))
+    assert metadata["request_source"] == "json"
+    assert metadata["image_shape"] == list(image.shape)
+    assert metadata["count"] == response["count"]
+
+
+def test_detect_request_prunes_debug_captures_to_configured_limit(monkeypatch, tmp_path):
+    monkeypatch.setattr("qr_to_pos.server.QRDetector", lambda model_size="s": _DummyDetector())
+    monkeypatch.setattr("qr_to_pos.server.pyzbar_decode", lambda _crop: [_DummyDecode(b"stubbed-qr")])
+
+    registration_path = tmp_path / "homography.npy"
+    config_path = tmp_path / "config.yml"
+    capture_dir = tmp_path / "captures"
+    config_path.write_text(
+        yaml.safe_dump(
+            {
+                "ws_debug": {
+                    "save_decoding_images": True,
+                    "max_saved_images": 2,
+                }
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    server = DetectionServer(
+        host="localhost",
+        port=0,
+        model_size="s",
+        registration_path=registration_path,
+        debug_capture_dir=capture_dir,
+    )
+
+    image = server.decode_image(IMAGE_PATH.read_bytes())
+    server.process_detect_request(image, request_source="json-1")
+    server.process_detect_request(image, request_source="json-2")
+    server.process_detect_request(image, request_source="json-3")
+
+    capture_dirs = sorted(path for path in capture_dir.iterdir() if path.is_dir())
+    assert len(capture_dirs) == 2
+
+    saved_sources = [
+        yaml.safe_load((path / "metadata.yml").read_text(encoding="utf-8"))["request_source"]
+        for path in capture_dirs
+    ]
+    assert saved_sources == ["json-2", "json-3"]
 
 
 def test_compute_depth_centroid_pct_returns_none_outside_registered_bounds(monkeypatch):

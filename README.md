@@ -41,7 +41,7 @@ Launcher key bindings:
 Start directly with:
 
 ```bash
-uv run python -m qr_to_pos.server [--host HOST] [--port PORT] [--model-size {n,s,m,l}]
+uv run python -m qr_to_pos.server [--host HOST] [--port PORT] [--model-size {n,s,m,l}] [--save-decoding-images]
 ```
 
 Implemented CLI options:
@@ -51,11 +51,13 @@ Implemented CLI options:
 | `--host` | `localhost` | Bind address for the WebSocket server |
 | `--port` | `8765` | Listening port |
 | `--model-size` | `s` | qrdet YOLO model size: `n`, `s`, `m`, or `l` |
+| `--save-decoding-images` | `off` | Save each detect request image plus response metadata to the temp debug folder |
 
 Internal defaults that are not exposed as CLI flags:
 
 - `max_size = 16 * 1024 * 1024` bytes for incoming WebSocket messages
 - `registration_path = assets/registration/homography.npy`
+- `debug_capture_dir = $TMPDIR/qr_to_pos/ws_debug`
 
 Supported WebSocket request styles:
 
@@ -78,6 +80,20 @@ Response behavior:
 - `detect` returns `action`, `homography`, `detections`, `count`, and `processing_time`
 - Each detection may include `bbox`, `confidence`, `decoded`, `homography`, `depth_bbox`, `depth_centroid`, and `depth_centroid_pct`
 - Invalid JSON or missing fields return JSON errors
+
+Debug capture settings live in [`assets/registration/config.yml`](/home/rongfei/WorkSpace/qr_to_pos/assets/registration/config.yml):
+
+```yaml
+ws_debug:
+  save_decoding_images: false
+  max_saved_images: 200
+```
+
+When enabled, each detect request is saved under the temp debug folder as a timestamped directory containing:
+
+- `input.png`
+- `response.json`
+- `metadata.yml`
 
 ## Flask Backend
 

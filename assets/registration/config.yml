@@ -6,3 +6,6 @@ depth_contour:
   erode_kernel: 9
   min_component_area: 1150
   eps: 0.025
+ws_debug:
+  save_decoding_images: false
+  max_saved_images: 200

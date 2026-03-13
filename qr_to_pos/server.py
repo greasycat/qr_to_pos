@@ -1,7 +1,10 @@
 import asyncio
 import base64
+from datetime import datetime, UTC
 import json
+import shutil
 import signal
+import tempfile
 import time
 from dataclasses import asdict
 from pathlib import Path
@@ -30,6 +33,8 @@ _DEFAULT_REGISTRATION_PATH = (
 )
 _DEFAULT_REGISTRATION_COORDS_PATH = _DEFAULT_REGISTRATION_PATH.with_name("coords.yml")
 _NORMALIZED_COORD_EPSILON = 1e-4
+_DEFAULT_DEBUG_CAPTURE_DIR = Path(tempfile.gettempdir()) / "qr_to_pos" / "ws_debug"
+_DEFAULT_MAX_SAVED_IMAGES = 200
 
 
 class DetectionServer:
@@ -43,6 +48,8 @@ class DetectionServer:
         max_size: int = 16 * 1024 * 1024,
         registration_path: str | Path = _DEFAULT_REGISTRATION_PATH,
         registration_coords_path: str | Path | None = None,
+        save_decoding_images: bool | None = None,
+        debug_capture_dir: str | Path | None = None,
     ) -> None:
         self.host = host
         self.port = port
@@ -52,6 +59,23 @@ class DetectionServer:
         if registration_coords_path is None:
             registration_coords_path = self.registration_path.with_name(_DEFAULT_REGISTRATION_COORDS_PATH.name)
         self.registration_coords_path = Path(registration_coords_path)
+        config = self._load_server_config()
+        debug_config = config.get("ws_debug", {}) if isinstance(config.get("ws_debug"), dict) else {}
+        self.save_decoding_images = (
+            self._coerce_bool(debug_config.get("save_decoding_images", False))
+            if save_decoding_images is None
+            else save_decoding_images
+        )
+        self.max_saved_images = self._coerce_positive_int(
+            debug_config.get("max_saved_images"),
+            _DEFAULT_MAX_SAVED_IMAGES,
+        )
+        self.debug_capture_dir = (
+            Path(debug_capture_dir)
+            if debug_capture_dir is not None
+            else _DEFAULT_DEBUG_CAPTURE_DIR
+        )
+        self._capture_sequence = 0
 
     def detect(self, image: np.ndarray) -> list[QRCode]:
         detections = self.detector.detect(image=image, is_bgr=True)
@@ -120,6 +144,31 @@ class DetectionServer:
         if matrix is None:
             return None
         return [[float(value) for value in row] for row in matrix]
+
+    def _load_server_config(self) -> dict[str, Any]:
+        config_path = self.registration_path.with_name("config.yml")
+        if not config_path.exists():
+            return {}
+
+        with config_path.open("r", encoding="utf-8") as handle:
+            payload = yaml.safe_load(handle) or {}
+        if not isinstance(payload, dict):
+            return {}
+        return payload
+
+    def _coerce_bool(self, value: Any) -> bool:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            return value.strip().lower() in {"1", "true", "yes", "on"}
+        return bool(value)
+
+    def _coerce_positive_int(self, value: Any, default: int) -> int:
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError):
+            return default
+        return max(1, parsed)
 
     def _load_registration_matrix(self) -> np.ndarray | None:
         if not self.registration_path.exists():
@@ -214,6 +263,69 @@ class DetectionServer:
             )
         return detection
 
+    def _iter_debug_capture_dirs(self) -> list[Path]:
+        if not self.debug_capture_dir.exists():
+            return []
+        return sorted(path for path in self.debug_capture_dir.iterdir() if path.is_dir())
+
+    def _prune_debug_captures(self) -> None:
+        capture_dirs = self._iter_debug_capture_dirs()
+        excess = len(capture_dirs) - self.max_saved_images
+        if excess <= 0:
+            return
+
+        for path in capture_dirs[:excess]:
+            shutil.rmtree(path, ignore_errors=True)
+
+    def _save_debug_capture(
+        self,
+        image: np.ndarray,
+        response: dict[str, Any],
+        request_source: str,
+    ) -> Path | None:
+        if not self.save_decoding_images:
+            return None
+
+        try:
+            self.debug_capture_dir.mkdir(parents=True, exist_ok=True)
+            self._capture_sequence += 1
+            timestamp = datetime.now(UTC)
+            capture_dir = self.debug_capture_dir / (
+                f"{timestamp.strftime('%Y%m%dT%H%M%S.%fZ')}_{self._capture_sequence:06d}"
+            )
+            capture_dir.mkdir(parents=False, exist_ok=False)
+
+            image_path = capture_dir / "input.png"
+            if not cv2.imwrite(str(image_path), image):
+                raise ValueError(f"Failed to write debug image to {image_path}")
+
+            response_path = capture_dir / "response.json"
+            with response_path.open("w", encoding="utf-8") as handle:
+                json.dump(response, handle, indent=2, sort_keys=True)
+
+            metadata = {
+                "saved_at_utc": timestamp.isoformat().replace("+00:00", "Z"),
+                "request_source": request_source,
+                "image_shape": list(image.shape),
+                "image_dtype": str(image.dtype),
+                "count": response.get("count"),
+                "processing_time": response.get("processing_time"),
+            }
+            metadata_path = capture_dir / "metadata.yml"
+            with metadata_path.open("w", encoding="utf-8") as handle:
+                yaml.safe_dump(metadata, handle, sort_keys=False)
+
+            self._prune_debug_captures()
+            return capture_dir
+        except Exception as exc:
+            print(f"QRDetectionRenderer: Failed to save debug capture: {exc}")
+            return None
+
+    def process_detect_request(self, image: np.ndarray, request_source: str) -> dict[str, Any]:
+        response = self.detect_response(image)
+        self._save_debug_capture(image, response, request_source)
+        return response
+
     def detect_response(self, image: np.ndarray) -> dict[str, Any]:
         start = time.perf_counter()
         qr_codes = self.detect(image)
@@ -274,7 +386,7 @@ class DetectionServer:
             if image_b64 is None:
                 raise ValueError("Missing 'image' field")
             image = self.decode_base64_image(image_b64)
-            return self.detect_response(image)
+            return self.process_detect_request(image, request_source="json")
 
         if action == "update_corners":
             print("Corner update request receieved")
@@ -308,7 +420,7 @@ class DetectionServer:
             action = "detect" if isinstance(message, bytes) else None
             try:
                 if isinstance(message, bytes):
-                    response = self.detect_response(self.decode_image(message))
+                    response = self.process_detect_request(self.decode_image(message), request_source="binary")
                 elif isinstance(message, str):
                     payload = json.loads(message)
                     action = payload.get("action")
@@ -368,11 +480,25 @@ def main() -> None:
         choices=["n", "s", "m", "l"],
         help="YOLO model size for QR detection",
     )
+    parser.add_argument(
+        "--save-decoding-images",
+        action="store_true",
+        default=None,
+        help="Save each detect request image and response metadata into a temp debug folder",
+    )
     args = parser.parse_args()
 
     server = DetectionServer(
-        host=args.host, port=args.port, model_size=args.model_size
+        host=args.host,
+        port=args.port,
+        model_size=args.model_size,
+        save_decoding_images=args.save_decoding_images,
     )
+    if server.save_decoding_images:
+        print(
+            "Debug capture enabled: saving detect requests to "
+            f"{server.debug_capture_dir} (max_saved_images={server.max_saved_images})"
+        )
     asyncio.run(server.run())
 
 
