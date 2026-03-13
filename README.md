@@ -69,7 +69,6 @@ Supported WebSocket request styles:
 
 - `detect`
   Required field: `image` (base64-encoded image bytes)
-  Optional field: `flip_horizontal` (`false` by default)
 - `update_corners`
   Required fields: `color_image` (base64 image), `depth_text` (tab-separated depth text)
 - `update_registration`
@@ -95,8 +94,6 @@ When enabled, each detect request is saved under the temp debug folder as a time
 - `input.png`
 - `response.json`
 - `metadata.yml`
-
-`metadata.yml` records whether `flip_horizontal` was applied before detection.
 
 ## Flask Backend
 

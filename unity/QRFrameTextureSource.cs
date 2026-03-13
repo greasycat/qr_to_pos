@@ -1,5 +1,6 @@
 using Intel.RealSense;
 using System;
+using System.Runtime.InteropServices;
 using UnityEngine;
 
 public sealed class QRFrameTextureSource : IDisposable
@@ -8,18 +9,27 @@ public sealed class QRFrameTextureSource : IDisposable
     readonly Stream stream;
     readonly Format format;
     readonly int streamIndex;
+    readonly bool flipHorizontally;
 
     FrameQueue queue;
     Predicate<Frame> matcher;
+    byte[] frameBytes;
+    byte[] flippedFrameBytes;
 
     public Texture2D SourceTexture { get; private set; }
 
-    public QRFrameTextureSource(RsFrameProvider source, Stream stream, Format format, int streamIndex)
+    public QRFrameTextureSource(
+        RsFrameProvider source,
+        Stream stream,
+        Format format,
+        int streamIndex,
+        bool flipHorizontally)
     {
         this.source = source;
         this.stream = stream;
         this.format = format;
         this.streamIndex = streamIndex;
+        this.flipHorizontally = flipHorizontally;
     }
 
     public void Initialize()
@@ -125,7 +135,19 @@ public sealed class QRFrameTextureSource : IDisposable
         if (HasTextureConflict(frame))
             RecreateTexture(frame, filterMode);
 
-        SourceTexture.LoadRawTextureData(frame.Data, frame.Stride * frame.Height);
+        int frameByteCount = frame.Stride * frame.Height;
+        if (flipHorizontally)
+        {
+            EnsureFrameBuffers(frameByteCount);
+            Marshal.Copy(frame.Data, frameBytes, 0, frameByteCount);
+            FlipFrameHorizontally(frame, frameBytes, flippedFrameBytes);
+            SourceTexture.LoadRawTextureData(flippedFrameBytes);
+        }
+        else
+        {
+            SourceTexture.LoadRawTextureData(frame.Data, frameByteCount);
+        }
+
         SourceTexture.Apply();
     }
 
@@ -161,6 +183,43 @@ public sealed class QRFrameTextureSource : IDisposable
 
         queue.Dispose();
         queue = null;
+    }
+
+    void EnsureFrameBuffers(int frameByteCount)
+    {
+        if (frameBytes == null || frameBytes.Length != frameByteCount)
+            frameBytes = new byte[frameByteCount];
+        if (flippedFrameBytes == null || flippedFrameBytes.Length != frameByteCount)
+            flippedFrameBytes = new byte[frameByteCount];
+    }
+
+    static void FlipFrameHorizontally(VideoFrame frame, byte[] sourceBytes, byte[] destinationBytes)
+    {
+        int bytesPerPixel = frame.BitsPerPixel / 8;
+        int rowStride = frame.Stride;
+        int rowPixelBytes = frame.Width * bytesPerPixel;
+
+        for (int y = 0; y < frame.Height; y++)
+        {
+            int rowStart = y * rowStride;
+            for (int x = 0; x < frame.Width; x++)
+            {
+                int sourceIndex = rowStart + (x * bytesPerPixel);
+                int destinationIndex = rowStart + ((frame.Width - 1 - x) * bytesPerPixel);
+                Buffer.BlockCopy(sourceBytes, sourceIndex, destinationBytes, destinationIndex, bytesPerPixel);
+            }
+
+            int paddingBytes = rowStride - rowPixelBytes;
+            if (paddingBytes > 0)
+            {
+                Buffer.BlockCopy(
+                    sourceBytes,
+                    rowStart + rowPixelBytes,
+                    destinationBytes,
+                    rowStart + rowPixelBytes,
+                    paddingBytes);
+            }
+        }
     }
 
     static TextureFormat ConvertFormat(Format lrsFormat)

@@ -241,23 +241,11 @@ class DetectionServer:
         normalized = np.clip(normalized, 0.0, 1.0)
         return np.round(normalized * 100.0, 4)
 
-    def _flip_bbox_xyxy(
-        self,
-        bbox: tuple[int, int, int, int] | list[float] | tuple[float, float, float, float],
-        image_width: int,
-    ) -> tuple[float, float, float, float]:
-        x1, y1, x2, y2 = map(float, bbox)
-        flipped_x1 = float(image_width) - x2
-        flipped_x2 = float(image_width) - x1
-        return flipped_x1, y1, flipped_x2, y2
-
     def _serialize_detection(
         self,
         qr: QRCode,
         homography: np.ndarray | None,
         depth_corners: np.ndarray | None,
-        image_width: int,
-        flip_horizontal: bool,
     ) -> dict[str, Any]:
         detection = asdict(qr)
         serialized_homography = self._serialize_matrix(homography)
@@ -266,12 +254,7 @@ class DetectionServer:
         detection["depth_centroid"] = None
         detection["depth_centroid_pct"] = None
         if homography is not None and qr.bbox is not None:
-            color_bbox = (
-                self._flip_bbox_xyxy(qr.bbox, image_width)
-                if flip_horizontal
-                else tuple(float(value) for value in qr.bbox)
-            )
-            depth_bbox = transform_bbox_to_depth(list(color_bbox), homography)
+            depth_bbox = transform_bbox_to_depth(list(qr.bbox), homography)
             depth_centroid = self._compute_polygon_centroid(depth_bbox)
             detection["depth_bbox"] = self._serialize_points(depth_bbox)
             detection["depth_centroid"] = self._serialize_point(depth_centroid)
@@ -299,7 +282,6 @@ class DetectionServer:
         image: np.ndarray,
         response: dict[str, Any],
         request_source: str,
-        flip_horizontal: bool,
     ) -> Path | None:
         if not self.save_decoding_images:
             return None
@@ -324,7 +306,6 @@ class DetectionServer:
             metadata = {
                 "saved_at_utc": timestamp.isoformat().replace("+00:00", "Z"),
                 "request_source": request_source,
-                "flip_horizontal": flip_horizontal,
                 "image_shape": list(image.shape),
                 "image_dtype": str(image.dtype),
                 "count": response.get("count"),
@@ -340,38 +321,21 @@ class DetectionServer:
             print(f"QRDetectionRenderer: Failed to save debug capture: {exc}")
             return None
 
-    def process_detect_request(
-        self,
-        image: np.ndarray,
-        request_source: str,
-        flip_horizontal: bool = False,
-    ) -> dict[str, Any]:
-        if flip_horizontal:
-            image = cv2.flip(image, 1)
-        response = self.detect_response(image, flip_horizontal=flip_horizontal)
-        self._save_debug_capture(image, response, request_source, flip_horizontal)
+    def process_detect_request(self, image: np.ndarray, request_source: str) -> dict[str, Any]:
+        response = self.detect_response(image)
+        self._save_debug_capture(image, response, request_source)
         return response
 
-    def detect_response(self, image: np.ndarray, flip_horizontal: bool = False) -> dict[str, Any]:
+    def detect_response(self, image: np.ndarray) -> dict[str, Any]:
         start = time.perf_counter()
         qr_codes = self.detect(image)
         processing_time = time.perf_counter() - start
         homography = self._load_registration_matrix()
         depth_corners = self._load_registration_depth_corners()
-        image_width = int(image.shape[1])
         return {
             "action": "detect",
             "homography": self._serialize_matrix(homography),
-            "detections": [
-                self._serialize_detection(
-                    qr,
-                    homography,
-                    depth_corners,
-                    image_width,
-                    flip_horizontal,
-                )
-                for qr in qr_codes
-            ],
+            "detections": [self._serialize_detection(qr, homography, depth_corners) for qr in qr_codes],
             "count": len(qr_codes),
             "processing_time": round(processing_time, 4),
         }
@@ -422,11 +386,7 @@ class DetectionServer:
             if image_b64 is None:
                 raise ValueError("Missing 'image' field")
             image = self.decode_base64_image(image_b64)
-            return self.process_detect_request(
-                image,
-                request_source="json",
-                flip_horizontal=self._coerce_bool(payload.get("flip_horizontal", False)),
-            )
+            return self.process_detect_request(image, request_source="json")
 
         if action == "update_corners":
             print("Corner update request receieved")

@@ -144,7 +144,7 @@ public class QRDetectionRenderer : MonoBehaviour
     {
         currentSourceTexture = sourceTexture;
         if (detectionClient != null)
-            detectionClient.TrySend(sourceTexture, sendInterval, flipHorizontallyBeforeDetection);
+            detectionClient.TrySend(sourceTexture, sendInterval);
     }
 
     void HandleDetectionResponse(DetectionResponse response)
@@ -295,7 +295,12 @@ public class QRDetectionRenderer : MonoBehaviour
             return;
         }
 
-        frameTextureSource = new QRFrameTextureSource(Source, _stream, _format, _streamIndex);
+        frameTextureSource = new QRFrameTextureSource(
+            Source,
+            _stream,
+            _format,
+            _streamIndex,
+            flipHorizontallyBeforeDetection);
         frameTextureSource.Initialize();
         liveFrameSourceInitialized = true;
         missingSourceLogged = false;
