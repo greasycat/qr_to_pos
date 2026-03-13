@@ -282,6 +282,7 @@ class DetectionServer:
         image: np.ndarray,
         response: dict[str, Any],
         request_source: str,
+        flip_horizontal: bool,
     ) -> Path | None:
         if not self.save_decoding_images:
             return None
@@ -306,6 +307,7 @@ class DetectionServer:
             metadata = {
                 "saved_at_utc": timestamp.isoformat().replace("+00:00", "Z"),
                 "request_source": request_source,
+                "flip_horizontal": flip_horizontal,
                 "image_shape": list(image.shape),
                 "image_dtype": str(image.dtype),
                 "count": response.get("count"),
@@ -321,9 +323,16 @@ class DetectionServer:
             print(f"QRDetectionRenderer: Failed to save debug capture: {exc}")
             return None
 
-    def process_detect_request(self, image: np.ndarray, request_source: str) -> dict[str, Any]:
+    def process_detect_request(
+        self,
+        image: np.ndarray,
+        request_source: str,
+        flip_horizontal: bool = False,
+    ) -> dict[str, Any]:
+        if flip_horizontal:
+            image = cv2.flip(image, 1)
         response = self.detect_response(image)
-        self._save_debug_capture(image, response, request_source)
+        self._save_debug_capture(image, response, request_source, flip_horizontal)
         return response
 
     def detect_response(self, image: np.ndarray) -> dict[str, Any]:
@@ -386,7 +395,11 @@ class DetectionServer:
             if image_b64 is None:
                 raise ValueError("Missing 'image' field")
             image = self.decode_base64_image(image_b64)
-            return self.process_detect_request(image, request_source="json")
+            return self.process_detect_request(
+                image,
+                request_source="json",
+                flip_horizontal=self._coerce_bool(payload.get("flip_horizontal", False)),
+            )
 
         if action == "update_corners":
             print("Corner update request receieved")

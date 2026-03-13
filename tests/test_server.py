@@ -31,6 +31,15 @@ class _DummyDecode:
         self.data = data
 
 
+class _CapturingDetector:
+    def __init__(self) -> None:
+        self.last_image = None
+
+    def detect(self, image, is_bgr=True):
+        self.last_image = image.copy()
+        return []
+
+
 @pytest.fixture()
 def stubbed_server(monkeypatch, tmp_path):
     monkeypatch.setattr("qr_to_pos.server.QRDetector", lambda model_size="s": _DummyDetector())
@@ -177,6 +186,7 @@ def test_detect_request_saves_debug_capture_from_config(monkeypatch, tmp_path):
 
     metadata = yaml.safe_load((saved_capture_dir / "metadata.yml").read_text(encoding="utf-8"))
     assert metadata["request_source"] == "json"
+    assert metadata["flip_horizontal"] is False
     assert metadata["image_shape"] == list(image.shape)
     assert metadata["count"] == response["count"]
 
@@ -222,6 +232,41 @@ def test_detect_request_prunes_debug_captures_to_configured_limit(monkeypatch, t
         for path in capture_dirs
     ]
     assert saved_sources == ["json-2", "json-3"]
+
+
+def test_detect_request_flips_image_horizontally_when_requested(monkeypatch, tmp_path):
+    detector = _CapturingDetector()
+    monkeypatch.setattr("qr_to_pos.server.QRDetector", lambda model_size="s": detector)
+    monkeypatch.setattr("qr_to_pos.server.pyzbar_decode", lambda _crop: [])
+
+    server = DetectionServer(
+        host="localhost",
+        port=0,
+        model_size="s",
+        registration_path=tmp_path / "homography.npy",
+    )
+
+    image = np.array(
+        [
+            [[0, 0, 1], [0, 0, 2], [0, 0, 3]],
+            [[0, 0, 4], [0, 0, 5], [0, 0, 6]],
+        ],
+        dtype=np.uint8,
+    )
+    ok, encoded = cv2.imencode(".png", image)
+    assert ok
+
+    response = server.handle_json_message(
+        {
+            "action": "detect",
+            "image": base64.b64encode(encoded.tobytes()).decode("ascii"),
+            "flip_horizontal": True,
+        }
+    )
+
+    assert response["action"] == "detect"
+    expected = np.flip(image, axis=1)
+    np.testing.assert_array_equal(detector.last_image, expected)
 
 
 def test_compute_depth_centroid_pct_returns_none_outside_registered_bounds(monkeypatch):

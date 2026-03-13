@@ -21,6 +21,14 @@ public struct DetectionResponse
     public string error;
 }
 
+[Serializable]
+public struct DetectionRequest
+{
+    public string action;
+    public string image;
+    public bool flip_horizontal;
+}
+
 public struct QRDebugMarkerPlacement
 {
     public string Name;

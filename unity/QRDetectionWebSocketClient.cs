@@ -35,7 +35,7 @@ public sealed class QRDetectionWebSocketClient
 #endif
     }
 
-    public async void TrySend(Texture2D sourceTexture, float sendInterval)
+    public async void TrySend(Texture2D sourceTexture, float sendInterval, bool flipHorizontal)
     {
         if (sending)
             return;
@@ -52,7 +52,14 @@ public sealed class QRDetectionWebSocketClient
         try
         {
             byte[] png = sourceTexture.EncodeToPNG();
-            await websocket.Send(png);
+            var request = new DetectionRequest
+            {
+                action = "detect",
+                image = Convert.ToBase64String(png),
+                flip_horizontal = flipHorizontal,
+            };
+            string payload = JsonUtility.ToJson(request);
+            await websocket.SendText(payload);
         }
         catch (Exception e)
         {

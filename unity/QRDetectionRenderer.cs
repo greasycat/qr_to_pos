@@ -17,6 +17,7 @@ public class QRDetectionRenderer : MonoBehaviour
     [Header("WebSocket")]
     public string serverUrl = "ws://localhost:8765";
     public float sendInterval = 0.3f;
+    public bool flipHorizontallyBeforeDetection = true;
 
     [Header("Marker Placement")]
     public Terrain terrain;
@@ -143,7 +144,7 @@ public class QRDetectionRenderer : MonoBehaviour
     {
         currentSourceTexture = sourceTexture;
         if (detectionClient != null)
-            detectionClient.TrySend(sourceTexture, sendInterval);
+            detectionClient.TrySend(sourceTexture, sendInterval, flipHorizontallyBeforeDetection);
     }
 
     void HandleDetectionResponse(DetectionResponse response)
