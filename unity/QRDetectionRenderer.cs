@@ -18,6 +18,7 @@ public class QRDetectionRenderer : MonoBehaviour
     public string serverUrl = "ws://localhost:8765";
     public float sendInterval = 0.3f;
     public bool flipHorizontallyBeforeDetection = true;
+    public bool flipVerticallyBeforeDetection;
 
     [Header("Marker Placement")]
     public Terrain terrain;
@@ -300,7 +301,8 @@ public class QRDetectionRenderer : MonoBehaviour
             _stream,
             _format,
             _streamIndex,
-            flipHorizontallyBeforeDetection);
+            flipHorizontallyBeforeDetection,
+            flipVerticallyBeforeDetection);
         frameTextureSource.Initialize();
         liveFrameSourceInitialized = true;
         missingSourceLogged = false;

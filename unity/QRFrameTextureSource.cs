@@ -10,6 +10,7 @@ public sealed class QRFrameTextureSource : IDisposable
     readonly Format format;
     readonly int streamIndex;
     readonly bool flipHorizontally;
+    readonly bool flipVertically;
 
     FrameQueue queue;
     Predicate<Frame> matcher;
@@ -23,13 +24,15 @@ public sealed class QRFrameTextureSource : IDisposable
         Stream stream,
         Format format,
         int streamIndex,
-        bool flipHorizontally)
+        bool flipHorizontally,
+        bool flipVertically)
     {
         this.source = source;
         this.stream = stream;
         this.format = format;
         this.streamIndex = streamIndex;
         this.flipHorizontally = flipHorizontally;
+        this.flipVertically = flipVertically;
     }
 
     public void Initialize()
@@ -136,11 +139,11 @@ public sealed class QRFrameTextureSource : IDisposable
             RecreateTexture(frame, filterMode);
 
         int frameByteCount = frame.Stride * frame.Height;
-        if (flipHorizontally)
+        if (flipHorizontally || flipVertically)
         {
             EnsureFrameBuffers(frameByteCount);
             Marshal.Copy(frame.Data, frameBytes, 0, frameByteCount);
-            FlipFrameHorizontally(frame, frameBytes, flippedFrameBytes);
+            FlipFrame(frame, frameBytes, flippedFrameBytes, flipHorizontally, flipVertically);
             SourceTexture.LoadRawTextureData(flippedFrameBytes);
         }
         else
@@ -193,7 +196,12 @@ public sealed class QRFrameTextureSource : IDisposable
             flippedFrameBytes = new byte[frameByteCount];
     }
 
-    static void FlipFrameHorizontally(VideoFrame frame, byte[] sourceBytes, byte[] destinationBytes)
+    static void FlipFrame(
+        VideoFrame frame,
+        byte[] sourceBytes,
+        byte[] destinationBytes,
+        bool flipHorizontally,
+        bool flipVertically)
     {
         int bytesPerPixel = frame.BitsPerPixel / 8;
         int rowStride = frame.Stride;
@@ -201,11 +209,14 @@ public sealed class QRFrameTextureSource : IDisposable
 
         for (int y = 0; y < frame.Height; y++)
         {
-            int rowStart = y * rowStride;
+            int sourceRow = flipVertically ? frame.Height - 1 - y : y;
+            int sourceRowStart = sourceRow * rowStride;
+            int destinationRowStart = y * rowStride;
             for (int x = 0; x < frame.Width; x++)
             {
-                int sourceIndex = rowStart + (x * bytesPerPixel);
-                int destinationIndex = rowStart + ((frame.Width - 1 - x) * bytesPerPixel);
+                int sourceColumn = flipHorizontally ? frame.Width - 1 - x : x;
+                int sourceIndex = sourceRowStart + (sourceColumn * bytesPerPixel);
+                int destinationIndex = destinationRowStart + (x * bytesPerPixel);
                 Buffer.BlockCopy(sourceBytes, sourceIndex, destinationBytes, destinationIndex, bytesPerPixel);
             }
 
@@ -214,9 +225,9 @@ public sealed class QRFrameTextureSource : IDisposable
             {
                 Buffer.BlockCopy(
                     sourceBytes,
-                    rowStart + rowPixelBytes,
+                    sourceRowStart + rowPixelBytes,
                     destinationBytes,
-                    rowStart + rowPixelBytes,
+                    destinationRowStart + rowPixelBytes,
                     paddingBytes);
             }
         }
