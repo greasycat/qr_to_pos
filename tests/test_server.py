@@ -131,6 +131,32 @@ def test_detect_qrs_includes_registration_projection(monkeypatch, tmp_path):
     assert detection["depth_centroid_pct"] == [54.0, 61.0]
 
 
+def test_compute_depth_centroid_pct_returns_none_outside_registered_bounds(monkeypatch):
+    monkeypatch.setattr("qr_to_pos.server.QRDetector", lambda model_size="s": _DummyDetector())
+    server = DetectionServer(host="localhost", port=0, model_size="s")
+
+    depth_bbox = np.array(
+        [
+            [150.0, 120.0],
+            [170.0, 120.0],
+            [170.0, 140.0],
+            [150.0, 140.0],
+        ],
+        dtype=np.float32,
+    )
+    depth_corners = np.array(
+        [
+            [0.0, 0.0],
+            [100.0, 0.0],
+            [100.0, 100.0],
+            [0.0, 100.0],
+        ],
+        dtype=np.float32,
+    )
+
+    assert server._compute_depth_centroid_pct(depth_bbox, depth_corners) is None
+
+
 def test_update_corners_action(monkeypatch):
     monkeypatch.setattr("qr_to_pos.server.QRDetector", lambda model_size="s": _DummyDetector())
     server = DetectionServer(host="localhost", port=0, model_size="s")

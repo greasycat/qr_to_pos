@@ -29,6 +29,7 @@ _DEFAULT_REGISTRATION_PATH = (
     Path(__file__).resolve().parent.parent / "assets" / "registration" / "homography.npy"
 )
 _DEFAULT_REGISTRATION_COORDS_PATH = _DEFAULT_REGISTRATION_PATH.with_name("coords.yml")
+_NORMALIZED_COORD_EPSILON = 1e-4
 
 
 class DetectionServer:
@@ -183,6 +184,12 @@ class DetectionServer:
         normalized = transform_points(np.array([centroid], dtype=np.float64), depth_to_rect)[0]
         if not np.all(np.isfinite(normalized)):
             return None
+        if np.any(normalized < -_NORMALIZED_COORD_EPSILON) or np.any(
+            normalized > 1.0 + _NORMALIZED_COORD_EPSILON
+        ):
+            return None
+
+        normalized = np.clip(normalized, 0.0, 1.0)
         return np.round(normalized * 100.0, 4)
 
     def _serialize_detection(

@@ -214,14 +214,14 @@ public class QRDetectionRenderer : MonoBehaviour
                     "QRDetectionRenderer: Out-of-bounds detection '{0}' depth_centroid_pct={1}",
                     GetDetectionLabel(detection),
                     GetDepthCentroidPercentageLabel(detection));
+                continue;
             }
 
-            Color currentMarkerColor = isOutOfBounds ? Color.black : markerColor;
             markerManager.SpawnMarker(
                 markerParent,
                 worldPosition,
                 markerScale,
-                currentMarkerColor,
+                markerColor,
                 detection,
                 i,
                 enableMarkerFall,
