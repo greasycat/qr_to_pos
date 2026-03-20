@@ -62,13 +62,17 @@ Internal defaults that are not exposed as CLI flags:
 Supported WebSocket request styles:
 
 1. Binary message
-   Send raw image bytes such as PNG or JPEG. The server treats this as a detection request.
+   Send raw image bytes such as PNG or JPEG. The server treats this as a legacy detection request with no backend flipping.
 
 2. JSON message
    Send a JSON object with one of these actions:
 
 - `detect`
   Required field: `image` (base64-encoded image bytes)
+  Used by the calibration/manual web tooling. No backend image flip is applied.
+- `detect_unity`
+  Required field: `image` (base64-encoded image bytes)
+  Used by the Unity live client. The backend flips the image horizontally before QR detection.
 - `update_corners`
   Required fields: `color_image` (base64 image), `depth_text` (tab-separated depth text)
 - `update_registration`

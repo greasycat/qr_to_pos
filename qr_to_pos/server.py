@@ -35,6 +35,8 @@ _DEFAULT_REGISTRATION_COORDS_PATH = _DEFAULT_REGISTRATION_PATH.with_name("coords
 _NORMALIZED_COORD_EPSILON = 1e-4
 _DEFAULT_DEBUG_CAPTURE_DIR = Path(tempfile.gettempdir()) / "qr_to_pos" / "ws_debug"
 _DEFAULT_MAX_SAVED_IMAGES = 200
+_UNITY_DETECT_FLIP_HORIZONTAL = True
+_UNITY_DETECT_FLIP_VERTICAL = False
 
 
 class DetectionServer:
@@ -117,6 +119,21 @@ class DetectionServer:
 
     def decode_base64_image(self, image_b64: str) -> np.ndarray:
         return self.decode_image(base64.b64decode(image_b64))
+
+    def flip_image(
+        self,
+        image: np.ndarray,
+        *,
+        flip_horizontal: bool = False,
+        flip_vertical: bool = False,
+    ) -> np.ndarray:
+        if not flip_horizontal and not flip_vertical:
+            return image
+        if flip_horizontal and flip_vertical:
+            return cv2.flip(image, -1)
+        if flip_horizontal:
+            return cv2.flip(image, 1)
+        return cv2.flip(image, 0)
 
     def decode_depth_text(self, raw_text: str) -> np.ndarray:
         lines = raw_text.splitlines()
@@ -282,6 +299,7 @@ class DetectionServer:
         image: np.ndarray,
         response: dict[str, Any],
         request_source: str,
+        request_action: str,
     ) -> Path | None:
         if not self.save_decoding_images:
             return None
@@ -306,6 +324,7 @@ class DetectionServer:
             metadata = {
                 "saved_at_utc": timestamp.isoformat().replace("+00:00", "Z"),
                 "request_source": request_source,
+                "request_action": request_action,
                 "image_shape": list(image.shape),
                 "image_dtype": str(image.dtype),
                 "count": response.get("count"),
@@ -321,19 +340,37 @@ class DetectionServer:
             print(f"QRDetectionRenderer: Failed to save debug capture: {exc}")
             return None
 
-    def process_detect_request(self, image: np.ndarray, request_source: str) -> dict[str, Any]:
-        response = self.detect_response(image)
-        self._save_debug_capture(image, response, request_source)
+    def process_detect_request(
+        self,
+        image: np.ndarray,
+        *,
+        request_source: str,
+        action: str = "detect",
+        flip_horizontal: bool = False,
+        flip_vertical: bool = False,
+    ) -> dict[str, Any]:
+        processed_image = self.flip_image(
+            image,
+            flip_horizontal=flip_horizontal,
+            flip_vertical=flip_vertical,
+        )
+        response = self.detect_response(processed_image, action=action)
+        self._save_debug_capture(
+            processed_image,
+            response,
+            request_source=request_source,
+            request_action=action,
+        )
         return response
 
-    def detect_response(self, image: np.ndarray) -> dict[str, Any]:
+    def detect_response(self, image: np.ndarray, action: str = "detect") -> dict[str, Any]:
         start = time.perf_counter()
         qr_codes = self.detect(image)
         processing_time = time.perf_counter() - start
         homography = self._load_registration_matrix()
         depth_corners = self._load_registration_depth_corners()
         return {
-            "action": "detect",
+            "action": action,
             "homography": self._serialize_matrix(homography),
             "detections": [self._serialize_detection(qr, homography, depth_corners) for qr in qr_codes],
             "count": len(qr_codes),
@@ -386,7 +423,25 @@ class DetectionServer:
             if image_b64 is None:
                 raise ValueError("Missing 'image' field")
             image = self.decode_base64_image(image_b64)
-            return self.process_detect_request(image, request_source="json")
+            return self.process_detect_request(
+                image,
+                request_source="calibration",
+                action="detect",
+            )
+
+        if action == "detect_unity":
+            print("Unity detect request receieved")
+            image_b64 = payload.get("image")
+            if image_b64 is None:
+                raise ValueError("Missing 'image' field")
+            image = self.decode_base64_image(image_b64)
+            return self.process_detect_request(
+                image,
+                request_source="unity",
+                action="detect_unity",
+                flip_horizontal=_UNITY_DETECT_FLIP_HORIZONTAL,
+                flip_vertical=_UNITY_DETECT_FLIP_VERTICAL,
+            )
 
         if action == "update_corners":
             print("Corner update request receieved")
@@ -420,7 +475,11 @@ class DetectionServer:
             action = "detect" if isinstance(message, bytes) else None
             try:
                 if isinstance(message, bytes):
-                    response = self.process_detect_request(self.decode_image(message), request_source="binary")
+                    response = self.process_detect_request(
+                        self.decode_image(message),
+                        request_source="binary",
+                        action="detect",
+                    )
                 elif isinstance(message, str):
                     payload = json.loads(message)
                     action = payload.get("action")

@@ -6,6 +6,13 @@ using UnityEngine;
 
 public sealed class QRDetectionWebSocketClient
 {
+    [Serializable]
+    struct DetectUnityRequest
+    {
+        public string action;
+        public string image;
+    }
+
     readonly WebSocket websocket;
     readonly Action<DetectionResponse> onDetectionResponse;
 
@@ -52,7 +59,13 @@ public sealed class QRDetectionWebSocketClient
         try
         {
             byte[] png = sourceTexture.EncodeToPNG();
-            await websocket.Send(png);
+            var request = new DetectUnityRequest
+            {
+                action = "detect_unity",
+                image = Convert.ToBase64String(png),
+            };
+            string payload = JsonUtility.ToJson(request);
+            await websocket.SendText(payload);
         }
         catch (Exception e)
         {

@@ -31,6 +31,15 @@ class _DummyDecode:
         self.data = data
 
 
+class _SpyDetector:
+    def __init__(self) -> None:
+        self.images = []
+
+    def detect(self, image, is_bgr=True):
+        self.images.append(image.copy())
+        return []
+
+
 @pytest.fixture()
 def stubbed_server(monkeypatch, tmp_path):
     monkeypatch.setattr("qr_to_pos.server.QRDetector", lambda model_size="s": _DummyDetector())
@@ -177,6 +186,7 @@ def test_detect_request_saves_debug_capture_from_config(monkeypatch, tmp_path):
 
     metadata = yaml.safe_load((saved_capture_dir / "metadata.yml").read_text(encoding="utf-8"))
     assert metadata["request_source"] == "json"
+    assert metadata["request_action"] == "detect"
     assert metadata["image_shape"] == list(image.shape)
     assert metadata["count"] == response["count"]
 
@@ -248,6 +258,120 @@ def test_compute_depth_centroid_pct_returns_none_outside_registered_bounds(monke
     )
 
     assert server._compute_depth_centroid_pct(depth_bbox, depth_corners) is None
+
+
+def test_detect_action_does_not_flip_image(monkeypatch):
+    detector = _SpyDetector()
+    monkeypatch.setattr("qr_to_pos.server.QRDetector", lambda model_size="s": detector)
+    server = DetectionServer(host="localhost", port=0, model_size="s")
+
+    image = np.array(
+        [
+            [[10, 20, 30], [40, 50, 60], [70, 80, 90]],
+            [[15, 25, 35], [45, 55, 65], [75, 85, 95]],
+        ],
+        dtype=np.uint8,
+    )
+    ok, encoded = cv2.imencode(".png", image)
+    assert ok
+
+    response = server.handle_json_message(
+        {
+            "action": "detect",
+            "image": base64.b64encode(encoded.tobytes()).decode("ascii"),
+        }
+    )
+
+    assert response["action"] == "detect"
+    assert len(detector.images) == 1
+    np.testing.assert_array_equal(detector.images[0], image)
+
+
+def test_detect_unity_action_flips_image_horizontally(monkeypatch):
+    detector = _SpyDetector()
+    monkeypatch.setattr("qr_to_pos.server.QRDetector", lambda model_size="s": detector)
+    server = DetectionServer(host="localhost", port=0, model_size="s")
+
+    image = np.array(
+        [
+            [[10, 20, 30], [40, 50, 60], [70, 80, 90]],
+            [[15, 25, 35], [45, 55, 65], [75, 85, 95]],
+        ],
+        dtype=np.uint8,
+    )
+    ok, encoded = cv2.imencode(".png", image)
+    assert ok
+
+    response = server.handle_json_message(
+        {
+            "action": "detect_unity",
+            "image": base64.b64encode(encoded.tobytes()).decode("ascii"),
+        }
+    )
+
+    assert response["action"] == "detect_unity"
+    assert len(detector.images) == 1
+    np.testing.assert_array_equal(detector.images[0], cv2.flip(image, 1))
+
+
+def test_detect_unity_request_saves_unity_metadata(monkeypatch, tmp_path):
+    detector = _SpyDetector()
+    monkeypatch.setattr("qr_to_pos.server.QRDetector", lambda model_size="s": detector)
+    monkeypatch.setattr("qr_to_pos.server.pyzbar_decode", lambda _crop: [])
+
+    registration_path = tmp_path / "homography.npy"
+    config_path = tmp_path / "config.yml"
+    capture_dir = tmp_path / "captures"
+    config_path.write_text(
+        yaml.safe_dump(
+            {
+                "ws_debug": {
+                    "save_decoding_images": True,
+                    "max_saved_images": 2,
+                }
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    server = DetectionServer(
+        host="localhost",
+        port=0,
+        model_size="s",
+        registration_path=registration_path,
+        debug_capture_dir=capture_dir,
+    )
+
+    image = np.array(
+        [
+            [[10, 20, 30], [40, 50, 60], [70, 80, 90]],
+            [[15, 25, 35], [45, 55, 65], [75, 85, 95]],
+        ],
+        dtype=np.uint8,
+    )
+    ok, encoded = cv2.imencode(".png", image)
+    assert ok
+
+    response = server.handle_json_message(
+        {
+            "action": "detect_unity",
+            "image": base64.b64encode(encoded.tobytes()).decode("ascii"),
+        }
+    )
+
+    assert response["action"] == "detect_unity"
+    capture_dirs = sorted(path for path in capture_dir.iterdir() if path.is_dir())
+    assert len(capture_dirs) == 1
+
+    saved_capture_dir = capture_dirs[0]
+    metadata = yaml.safe_load((saved_capture_dir / "metadata.yml").read_text(encoding="utf-8"))
+    assert metadata["request_source"] == "unity"
+    assert metadata["request_action"] == "detect_unity"
+
+    saved_image = cv2.imread(str(saved_capture_dir / "input.png"), cv2.IMREAD_COLOR)
+    assert saved_image is not None
+    np.testing.assert_array_equal(saved_image, cv2.flip(image, 1))
 
 
 def test_update_corners_action(monkeypatch):
