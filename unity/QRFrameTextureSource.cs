@@ -43,16 +43,17 @@ public sealed class QRFrameTextureSource : IDisposable
         {
             isDisposed = false;
             DisposeQueueLocked();
-            queue = new FrameQueue(1);
             matcher = new Predicate<Frame>(Matches);
         }
 
         source.OnStart -= OnStartStreaming;
         source.OnStop -= OnStopStreaming;
         source.OnNewSample -= OnNewSample;
-        source.OnNewSample += OnNewSample;
         source.OnStart += OnStartStreaming;
         source.OnStop += OnStopStreaming;
+
+        if (source.Streaming && source.ActiveProfile != null)
+            OnStartStreaming(source.ActiveProfile);
     }
 
     public void PumpLatestFrame(FilterMode filterMode, Action<Texture2D> onTextureUpdated)
