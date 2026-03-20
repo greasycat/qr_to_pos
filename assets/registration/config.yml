@@ -11,4 +11,4 @@ ws_debug:
   max_saved_images: 20
 ws_processing:
   unity_image_actions:
-    - flip_h
+    - flip_v
