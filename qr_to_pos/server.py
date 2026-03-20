@@ -317,6 +317,13 @@ class DetectionServer:
             if not cv2.imwrite(str(image_path), image):
                 raise ValueError(f"Failed to write debug image to {image_path}")
 
+            processed_image_path = capture_dir / "processed.png"
+            self._save_processed_detection_image(
+                image=image,
+                detections=response.get("detections"),
+                output_path=processed_image_path,
+            )
+
             response_path = capture_dir / "response.json"
             with response_path.open("w", encoding="utf-8") as handle:
                 json.dump(response, handle, indent=2, sort_keys=True)
@@ -339,6 +346,44 @@ class DetectionServer:
         except Exception as exc:
             print(f"QRDetectionRenderer: Failed to save debug capture: {exc}")
             return None
+
+    def _save_processed_detection_image(
+        self,
+        image: np.ndarray,
+        detections: Any,
+        output_path: Path,
+    ) -> None:
+        processed = image.copy()
+
+        if isinstance(detections, list):
+            for detection in detections:
+                if not isinstance(detection, dict):
+                    continue
+
+                bbox = detection.get("bbox")
+                if not isinstance(bbox, (list, tuple)) or len(bbox) != 4:
+                    continue
+
+                try:
+                    x1, y1, x2, y2 = [int(value) for value in bbox]
+                except (TypeError, ValueError):
+                    continue
+
+                center = ((x1 + x2) // 2, (y1 + y2) // 2)
+                axes = (max(1, (x2 - x1) // 2), max(1, (y2 - y1) // 2))
+                cv2.ellipse(
+                    processed,
+                    center,
+                    axes,
+                    0,
+                    0,
+                    360,
+                    (0, 255, 0),
+                    2,
+                )
+
+        if not cv2.imwrite(str(output_path), processed):
+            raise ValueError(f"Failed to write processed image to {output_path}")
 
     def process_detect_request(
         self,

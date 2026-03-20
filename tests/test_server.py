@@ -177,6 +177,7 @@ def test_detect_request_saves_debug_capture_from_config(monkeypatch, tmp_path):
 
     saved_capture_dir = capture_dirs[0]
     assert (saved_capture_dir / "input.png").exists()
+    assert (saved_capture_dir / "processed.png").exists()
     assert (saved_capture_dir / "response.json").exists()
     assert (saved_capture_dir / "metadata.yml").exists()
 
@@ -189,6 +190,12 @@ def test_detect_request_saves_debug_capture_from_config(monkeypatch, tmp_path):
     assert metadata["request_action"] == "detect"
     assert metadata["image_shape"] == list(image.shape)
     assert metadata["count"] == response["count"]
+
+    saved_input = cv2.imread(str(saved_capture_dir / "input.png"), cv2.IMREAD_COLOR)
+    saved_processed = cv2.imread(str(saved_capture_dir / "processed.png"), cv2.IMREAD_COLOR)
+    assert saved_input is not None
+    assert saved_processed is not None
+    assert np.any(saved_processed != saved_input)
 
 
 def test_detect_request_prunes_debug_captures_to_configured_limit(monkeypatch, tmp_path):
@@ -265,13 +272,10 @@ def test_detect_action_does_not_flip_image(monkeypatch):
     monkeypatch.setattr("qr_to_pos.server.QRDetector", lambda model_size="s": detector)
     server = DetectionServer(host="localhost", port=0, model_size="s")
 
-    image = np.array(
-        [
-            [[10, 20, 30], [40, 50, 60], [70, 80, 90]],
-            [[15, 25, 35], [45, 55, 65], [75, 85, 95]],
-        ],
-        dtype=np.uint8,
-    )
+    image = np.zeros((140, 140, 3), dtype=np.uint8)
+    image[:, :, 0] = 10
+    image[:, :, 1] = 20
+    image[:, :, 2] = 30
     ok, encoded = cv2.imencode(".png", image)
     assert ok
 
@@ -292,13 +296,10 @@ def test_detect_unity_action_flips_image_horizontally(monkeypatch):
     monkeypatch.setattr("qr_to_pos.server.QRDetector", lambda model_size="s": detector)
     server = DetectionServer(host="localhost", port=0, model_size="s")
 
-    image = np.array(
-        [
-            [[10, 20, 30], [40, 50, 60], [70, 80, 90]],
-            [[15, 25, 35], [45, 55, 65], [75, 85, 95]],
-        ],
-        dtype=np.uint8,
-    )
+    image = np.zeros((140, 140, 3), dtype=np.uint8)
+    image[:, :, 0] = 10
+    image[:, :, 1] = 20
+    image[:, :, 2] = 30
     ok, encoded = cv2.imencode(".png", image)
     assert ok
 
@@ -315,9 +316,8 @@ def test_detect_unity_action_flips_image_horizontally(monkeypatch):
 
 
 def test_detect_unity_request_saves_unity_metadata(monkeypatch, tmp_path):
-    detector = _SpyDetector()
-    monkeypatch.setattr("qr_to_pos.server.QRDetector", lambda model_size="s": detector)
-    monkeypatch.setattr("qr_to_pos.server.pyzbar_decode", lambda _crop: [])
+    monkeypatch.setattr("qr_to_pos.server.QRDetector", lambda model_size="s": _DummyDetector())
+    monkeypatch.setattr("qr_to_pos.server.pyzbar_decode", lambda _crop: [_DummyDecode(b"stubbed-qr")])
 
     registration_path = tmp_path / "homography.npy"
     config_path = tmp_path / "config.yml"
@@ -343,13 +343,10 @@ def test_detect_unity_request_saves_unity_metadata(monkeypatch, tmp_path):
         debug_capture_dir=capture_dir,
     )
 
-    image = np.array(
-        [
-            [[10, 20, 30], [40, 50, 60], [70, 80, 90]],
-            [[15, 25, 35], [45, 55, 65], [75, 85, 95]],
-        ],
-        dtype=np.uint8,
-    )
+    image = np.zeros((140, 140, 3), dtype=np.uint8)
+    image[:, :, 0] = 10
+    image[:, :, 1] = 20
+    image[:, :, 2] = 30
     ok, encoded = cv2.imencode(".png", image)
     assert ok
 
@@ -370,8 +367,11 @@ def test_detect_unity_request_saves_unity_metadata(monkeypatch, tmp_path):
     assert metadata["request_action"] == "detect_unity"
 
     saved_image = cv2.imread(str(saved_capture_dir / "input.png"), cv2.IMREAD_COLOR)
+    saved_processed = cv2.imread(str(saved_capture_dir / "processed.png"), cv2.IMREAD_COLOR)
     assert saved_image is not None
+    assert saved_processed is not None
     np.testing.assert_array_equal(saved_image, cv2.flip(image, 1))
+    assert np.any(saved_processed != saved_image)
 
 
 def test_update_corners_action(monkeypatch):

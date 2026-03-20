@@ -96,6 +96,7 @@ ws_debug:
 When enabled, each detect request is saved under the temp debug folder as a timestamped directory containing:
 
 - `input.png`
+- `processed.png`
 - `response.json`
 - `metadata.yml`
 
