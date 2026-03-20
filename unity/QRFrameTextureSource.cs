@@ -143,6 +143,7 @@ public sealed class QRFrameTextureSource : IDisposable
                         if (isDisposed || queue == null || matchedFrame == null)
                             return;
 
+                        matchedFrame.Keep();
                         queue.Enqueue(matchedFrame);
                     }
 
@@ -160,6 +161,7 @@ public sealed class QRFrameTextureSource : IDisposable
                     if (isDisposed || queue == null)
                         return;
 
+                    frame.Keep();
                     queue.Enqueue(frame);
                 }
             }
