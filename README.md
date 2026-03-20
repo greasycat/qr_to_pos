@@ -72,7 +72,7 @@ Supported WebSocket request styles:
   Used by the calibration/manual web tooling. No backend image flip is applied.
 - `detect_unity`
   Required field: `image` (base64-encoded image bytes)
-  Used by the Unity live client. The backend flips the image horizontally before QR detection.
+  Used by the Unity live client. The backend applies the configured Unity image-action pipeline before QR detection.
 - `update_corners`
   Required fields: `color_image` (base64 image), `depth_text` (tab-separated depth text)
 - `update_registration`
@@ -91,7 +91,17 @@ Debug capture settings live in [`assets/registration/config.yml`](/home/rongfei/
 ws_debug:
   save_decoding_images: false
   max_saved_images: 200
+ws_processing:
+  unity_image_actions:
+    - flip_h
 ```
+
+Supported `unity_image_actions` entries:
+
+- `flip_h`: horizontal flip
+- `flip_v`: vertical flip
+- `r_180_plus`: rotate 90 degrees clockwise
+- `r_180_minus`: rotate 90 degrees counterclockwise
 
 When enabled, each detect request is saved under the temp debug folder as a timestamped directory containing:
 

@@ -9,3 +9,6 @@ depth_contour:
 ws_debug:
   save_decoding_images: true
   max_saved_images: 20
+ws_processing:
+  unity_image_actions:
+    - flip_h

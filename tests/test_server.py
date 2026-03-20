@@ -40,6 +40,29 @@ class _SpyDetector:
         return []
 
 
+def _write_server_config(
+    path: Path,
+    *,
+    save_decoding_images: bool = False,
+    max_saved_images: int = 2,
+    unity_image_actions: list[str] | None = None,
+) -> None:
+    payload = {
+        "ws_debug": {
+            "save_decoding_images": save_decoding_images,
+            "max_saved_images": max_saved_images,
+        }
+    }
+    if unity_image_actions is not None:
+        payload["ws_processing"] = {
+            "unity_image_actions": unity_image_actions,
+        }
+    path.write_text(
+        yaml.safe_dump(payload, sort_keys=False),
+        encoding="utf-8",
+    )
+
+
 @pytest.fixture()
 def stubbed_server(monkeypatch, tmp_path):
     monkeypatch.setattr("qr_to_pos.server.QRDetector", lambda model_size="s": _DummyDetector())
@@ -148,17 +171,10 @@ def test_detect_request_saves_debug_capture_from_config(monkeypatch, tmp_path):
     registration_path = tmp_path / "homography.npy"
     config_path = tmp_path / "config.yml"
     capture_dir = tmp_path / "captures"
-    config_path.write_text(
-        yaml.safe_dump(
-            {
-                "ws_debug": {
-                    "save_decoding_images": True,
-                    "max_saved_images": 2,
-                }
-            },
-            sort_keys=False,
-        ),
-        encoding="utf-8",
+    _write_server_config(
+        config_path,
+        save_decoding_images=True,
+        max_saved_images=2,
     )
 
     server = DetectionServer(
@@ -205,17 +221,10 @@ def test_detect_request_prunes_debug_captures_to_configured_limit(monkeypatch, t
     registration_path = tmp_path / "homography.npy"
     config_path = tmp_path / "config.yml"
     capture_dir = tmp_path / "captures"
-    config_path.write_text(
-        yaml.safe_dump(
-            {
-                "ws_debug": {
-                    "save_decoding_images": True,
-                    "max_saved_images": 2,
-                }
-            },
-            sort_keys=False,
-        ),
-        encoding="utf-8",
+    _write_server_config(
+        config_path,
+        save_decoding_images=True,
+        max_saved_images=2,
     )
 
     server = DetectionServer(
@@ -315,6 +324,64 @@ def test_detect_unity_action_flips_image_horizontally(monkeypatch):
     np.testing.assert_array_equal(detector.images[0], cv2.flip(image, 1))
 
 
+def test_detect_unity_action_uses_yaml_image_action_pipeline(monkeypatch, tmp_path):
+    detector = _SpyDetector()
+    monkeypatch.setattr("qr_to_pos.server.QRDetector", lambda model_size="s": detector)
+
+    registration_path = tmp_path / "homography.npy"
+    config_path = tmp_path / "config.yml"
+    _write_server_config(
+        config_path,
+        unity_image_actions=["flip_h", "flip_v"],
+    )
+
+    server = DetectionServer(
+        host="localhost",
+        port=0,
+        model_size="s",
+        registration_path=registration_path,
+    )
+
+    image = np.zeros((4, 5, 3), dtype=np.uint8)
+    image[0, 0] = [10, 20, 30]
+    image[0, 4] = [40, 50, 60]
+    image[3, 0] = [70, 80, 90]
+    image[3, 4] = [100, 110, 120]
+    ok, encoded = cv2.imencode(".png", image)
+    assert ok
+
+    response = server.handle_json_message(
+        {
+            "action": "detect_unity",
+            "image": base64.b64encode(encoded.tobytes()).decode("ascii"),
+        }
+    )
+
+    assert response["action"] == "detect_unity"
+    assert len(detector.images) == 1
+    expected = cv2.flip(cv2.flip(image, 1), 0)
+    np.testing.assert_array_equal(detector.images[0], expected)
+
+
+def test_invalid_unity_image_action_in_yaml_raises(monkeypatch, tmp_path):
+    monkeypatch.setattr("qr_to_pos.server.QRDetector", lambda model_size="s": _SpyDetector())
+
+    registration_path = tmp_path / "homography.npy"
+    config_path = tmp_path / "config.yml"
+    _write_server_config(
+        config_path,
+        unity_image_actions=["flip_h", "nope"],
+    )
+
+    with pytest.raises(ValueError, match="Unsupported unity image action: nope"):
+        DetectionServer(
+            host="localhost",
+            port=0,
+            model_size="s",
+            registration_path=registration_path,
+        )
+
+
 def test_detect_unity_request_saves_unity_metadata(monkeypatch, tmp_path):
     monkeypatch.setattr("qr_to_pos.server.QRDetector", lambda model_size="s": _DummyDetector())
     monkeypatch.setattr("qr_to_pos.server.pyzbar_decode", lambda _crop: [_DummyDecode(b"stubbed-qr")])
@@ -322,17 +389,10 @@ def test_detect_unity_request_saves_unity_metadata(monkeypatch, tmp_path):
     registration_path = tmp_path / "homography.npy"
     config_path = tmp_path / "config.yml"
     capture_dir = tmp_path / "captures"
-    config_path.write_text(
-        yaml.safe_dump(
-            {
-                "ws_debug": {
-                    "save_decoding_images": True,
-                    "max_saved_images": 2,
-                }
-            },
-            sort_keys=False,
-        ),
-        encoding="utf-8",
+    _write_server_config(
+        config_path,
+        save_decoding_images=True,
+        max_saved_images=2,
     )
 
     server = DetectionServer(

@@ -35,8 +35,7 @@ _DEFAULT_REGISTRATION_COORDS_PATH = _DEFAULT_REGISTRATION_PATH.with_name("coords
 _NORMALIZED_COORD_EPSILON = 1e-4
 _DEFAULT_DEBUG_CAPTURE_DIR = Path(tempfile.gettempdir()) / "qr_to_pos" / "ws_debug"
 _DEFAULT_MAX_SAVED_IMAGES = 200
-_UNITY_DETECT_FLIP_HORIZONTAL = True
-_UNITY_DETECT_FLIP_VERTICAL = False
+_DEFAULT_UNITY_IMAGE_ACTIONS = ("flip_h",)
 
 
 class DetectionServer:
@@ -63,6 +62,9 @@ class DetectionServer:
         self.registration_coords_path = Path(registration_coords_path)
         config = self._load_server_config()
         debug_config = config.get("ws_debug", {}) if isinstance(config.get("ws_debug"), dict) else {}
+        processing_config = (
+            config.get("ws_processing", {}) if isinstance(config.get("ws_processing"), dict) else {}
+        )
         self.save_decoding_images = (
             self._coerce_bool(debug_config.get("save_decoding_images", False))
             if save_decoding_images is None
@@ -76,6 +78,10 @@ class DetectionServer:
             Path(debug_capture_dir)
             if debug_capture_dir is not None
             else _DEFAULT_DEBUG_CAPTURE_DIR
+        )
+        self.unity_image_actions = self._coerce_image_actions(
+            processing_config.get("unity_image_actions"),
+            default=_DEFAULT_UNITY_IMAGE_ACTIONS,
         )
         self._capture_sequence = 0
 
@@ -120,20 +126,29 @@ class DetectionServer:
     def decode_base64_image(self, image_b64: str) -> np.ndarray:
         return self.decode_image(base64.b64decode(image_b64))
 
-    def flip_image(
+    def apply_image_actions(
         self,
         image: np.ndarray,
         *,
-        flip_horizontal: bool = False,
-        flip_vertical: bool = False,
+        actions: list[str] | tuple[str, ...],
     ) -> np.ndarray:
-        if not flip_horizontal and not flip_vertical:
-            return image
-        if flip_horizontal and flip_vertical:
-            return cv2.flip(image, -1)
-        if flip_horizontal:
-            return cv2.flip(image, 1)
-        return cv2.flip(image, 0)
+        processed = image
+        for action in actions:
+            if action == "flip_h":
+                processed = cv2.flip(processed, 1)
+                continue
+            if action == "flip_v":
+                processed = cv2.flip(processed, 0)
+                continue
+            if action == "r_180_plus":
+                processed = cv2.rotate(processed, cv2.ROTATE_90_CLOCKWISE)
+                continue
+            if action == "r_180_minus":
+                processed = cv2.rotate(processed, cv2.ROTATE_90_COUNTERCLOCKWISE)
+                continue
+            raise ValueError(f"Unsupported image action: {action}")
+
+        return processed
 
     def decode_depth_text(self, raw_text: str) -> np.ndarray:
         lines = raw_text.splitlines()
@@ -186,6 +201,29 @@ class DetectionServer:
         except (TypeError, ValueError):
             return default
         return max(1, parsed)
+
+    def _coerce_image_actions(
+        self,
+        value: Any,
+        *,
+        default: tuple[str, ...],
+    ) -> tuple[str, ...]:
+        if value is None:
+            actions = list(default)
+        elif isinstance(value, list):
+            actions = value
+        else:
+            raise ValueError("ws_processing.unity_image_actions must be a list of action names")
+
+        normalized = []
+        for action in actions:
+            if not isinstance(action, str):
+                raise ValueError("unity image action names must be strings")
+            action_name = action.strip()
+            if action_name not in {"flip_h", "flip_v", "r_180_plus", "r_180_minus"}:
+                raise ValueError(f"Unsupported unity image action: {action_name}")
+            normalized.append(action_name)
+        return tuple(normalized)
 
     def _load_registration_matrix(self) -> np.ndarray | None:
         if not self.registration_path.exists():
@@ -391,13 +429,11 @@ class DetectionServer:
         *,
         request_source: str,
         action: str = "detect",
-        flip_horizontal: bool = False,
-        flip_vertical: bool = False,
+        image_actions: list[str] | tuple[str, ...] = (),
     ) -> dict[str, Any]:
-        processed_image = self.flip_image(
+        processed_image = self.apply_image_actions(
             image,
-            flip_horizontal=flip_horizontal,
-            flip_vertical=flip_vertical,
+            actions=image_actions,
         )
         response = self.detect_response(processed_image, action=action)
         self._save_debug_capture(
@@ -472,6 +508,7 @@ class DetectionServer:
                 image,
                 request_source="calibration",
                 action="detect",
+                image_actions=(),
             )
 
         if action == "detect_unity":
@@ -484,8 +521,7 @@ class DetectionServer:
                 image,
                 request_source="unity",
                 action="detect_unity",
-                flip_horizontal=_UNITY_DETECT_FLIP_HORIZONTAL,
-                flip_vertical=_UNITY_DETECT_FLIP_VERTICAL,
+                image_actions=self.unity_image_actions,
             )
 
         if action == "update_corners":
@@ -524,6 +560,7 @@ class DetectionServer:
                         self.decode_image(message),
                         request_source="binary",
                         action="detect",
+                        image_actions=(),
                     )
                 elif isinstance(message, str):
                     payload = json.loads(message)
