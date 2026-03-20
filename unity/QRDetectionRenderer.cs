@@ -2,6 +2,7 @@ using Intel.RealSense;
 using System.Collections.Generic;
 using UnityEngine;
 
+[DefaultExecutionOrder(-10)] 
 public class QRDetectionRenderer : MonoBehaviour
 {
     [Header("Input")]
