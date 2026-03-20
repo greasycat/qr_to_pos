@@ -11,11 +11,13 @@ public sealed class QRFrameTextureSource : IDisposable
     readonly int streamIndex;
     readonly bool flipHorizontally;
     readonly bool flipVertically;
+    readonly object queueLock = new object();
 
     FrameQueue queue;
     Predicate<Frame> matcher;
     byte[] frameBytes;
     byte[] flippedFrameBytes;
+    bool isDisposed;
 
     public Texture2D SourceTexture { get; private set; }
 
@@ -37,9 +39,16 @@ public sealed class QRFrameTextureSource : IDisposable
 
     public void Initialize()
     {
-        DisposeQueue();
-        queue = new FrameQueue(1);
-        matcher = new Predicate<Frame>(Matches);
+        lock (queueLock)
+        {
+            isDisposed = false;
+            DisposeQueueLocked();
+            queue = new FrameQueue(1);
+            matcher = new Predicate<Frame>(Matches);
+        }
+
+        source.OnStart -= OnStartStreaming;
+        source.OnStop -= OnStopStreaming;
         source.OnNewSample -= OnNewSample;
         source.OnNewSample += OnNewSample;
         source.OnStart += OnStartStreaming;
@@ -48,16 +57,14 @@ public sealed class QRFrameTextureSource : IDisposable
 
     public void PumpLatestFrame(FilterMode filterMode, Action<Texture2D> onTextureUpdated)
     {
-        if (queue == null){
-            // Debug.Log("queue null");
-            return;
-        }
-
         VideoFrame frame;
-        if (!queue.PollForFrame<VideoFrame>(out frame))
+        lock (queueLock)
         {
-            // Debug.Log("wait for polling info");
-            return;
+            if (queue == null)
+                return;
+
+            if (!queue.PollForFrame<VideoFrame>(out frame))
+                return;
         }
 
         using (frame)
@@ -74,7 +81,11 @@ public sealed class QRFrameTextureSource : IDisposable
         source.OnStop -= OnStopStreaming;
         source.OnNewSample -= OnNewSample;
 
-        DisposeQueue();
+        lock (queueLock)
+        {
+            isDisposed = true;
+            DisposeQueueLocked();
+        }
 
         if (SourceTexture != null)
         {
@@ -86,9 +97,17 @@ public sealed class QRFrameTextureSource : IDisposable
     void OnStartStreaming(PipelineProfile activeProfile)
     {
         Debug.Log("OnStartStreaming in QRFrame");
-        DisposeQueue();
-        queue = new FrameQueue(1);
-        matcher = new Predicate<Frame>(Matches);
+
+        lock (queueLock)
+        {
+            if (isDisposed)
+                return;
+
+            DisposeQueueLocked();
+            queue = new FrameQueue(1);
+            matcher = new Predicate<Frame>(Matches);
+        }
+
         source.OnNewSample -= OnNewSample;
         source.OnNewSample += OnNewSample;
     }
@@ -96,7 +115,11 @@ public sealed class QRFrameTextureSource : IDisposable
     void OnStopStreaming()
     {
         source.OnNewSample -= OnNewSample;
-        DisposeQueue();
+
+        lock (queueLock)
+        {
+            DisposeQueueLocked();
+        }
     }
 
     bool Matches(Frame frame)
@@ -114,8 +137,13 @@ public sealed class QRFrameTextureSource : IDisposable
                 using (var frames = frame.As<FrameSet>())
                 using (var matchedFrame = frames.FirstOrDefault(matcher))
                 {
-                    if (matchedFrame != null)
+                    lock (queueLock)
+                    {
+                        if (isDisposed || queue == null || matchedFrame == null)
+                            return;
+
                         queue.Enqueue(matchedFrame);
+                    }
 
                     return;
                 }
@@ -125,7 +153,15 @@ public sealed class QRFrameTextureSource : IDisposable
                 return;
 
             using (frame)
-                queue.Enqueue(frame);
+            {
+                lock (queueLock)
+                {
+                    if (isDisposed || queue == null)
+                        return;
+
+                    queue.Enqueue(frame);
+                }
+            }
         }
         catch (Exception e)
         {
@@ -180,6 +216,14 @@ public sealed class QRFrameTextureSource : IDisposable
     }
 
     void DisposeQueue()
+    {
+        lock (queueLock)
+        {
+            DisposeQueueLocked();
+        }
+    }
+
+    void DisposeQueueLocked()
     {
         if (queue == null)
             return;

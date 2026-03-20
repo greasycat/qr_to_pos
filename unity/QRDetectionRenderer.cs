@@ -109,6 +109,12 @@ public class QRDetectionRenderer : MonoBehaviour
 
     async void OnDestroy()
     {
+        if (frameTextureSource != null)
+        {
+            frameTextureSource.Dispose();
+            frameTextureSource = null;
+        }
+
         if (detectionClient != null)
         {
             try
@@ -121,12 +127,6 @@ public class QRDetectionRenderer : MonoBehaviour
             }
 
             detectionClient = null;
-        }
-
-        if (frameTextureSource != null)
-        {
-            frameTextureSource.Dispose();
-            frameTextureSource = null;
         }
 
         TerrainEvents.OnHeightmapChanged -= HandleTerrainHeightmapChanged;
