@@ -1,6 +1,5 @@
 using Intel.RealSense;
 using System;
-using System.Runtime.InteropServices;
 using UnityEngine;
 
 public sealed class QRFrameTextureSource : IDisposable
@@ -9,64 +8,34 @@ public sealed class QRFrameTextureSource : IDisposable
     readonly Stream stream;
     readonly Format format;
     readonly int streamIndex;
-    readonly bool flipHorizontally;
-    readonly bool flipVertically;
-    readonly object queueLock = new object();
 
     FrameQueue queue;
     Predicate<Frame> matcher;
-    byte[] frameBytes;
-    byte[] flippedFrameBytes;
-    bool isDisposed;
 
     public Texture2D SourceTexture { get; private set; }
 
-    public QRFrameTextureSource(
-        RsFrameProvider source,
-        Stream stream,
-        Format format,
-        int streamIndex,
-        bool flipHorizontally,
-        bool flipVertically)
+    public QRFrameTextureSource(RsFrameProvider source, Stream stream, Format format, int streamIndex)
     {
         this.source = source;
         this.stream = stream;
         this.format = format;
         this.streamIndex = streamIndex;
-        this.flipHorizontally = flipHorizontally;
-        this.flipVertically = flipVertically;
     }
 
     public void Initialize()
     {
-        lock (queueLock)
-        {
-            isDisposed = false;
-            DisposeQueueLocked();
-            matcher = new Predicate<Frame>(Matches);
-        }
-
-        source.OnStart -= OnStartStreaming;
-        source.OnStop -= OnStopStreaming;
-        source.OnNewSample -= OnNewSample;
         source.OnStart += OnStartStreaming;
         source.OnStop += OnStopStreaming;
-
-        if (source.Streaming && source.ActiveProfile != null)
-            OnStartStreaming(source.ActiveProfile);
     }
 
     public void PumpLatestFrame(FilterMode filterMode, Action<Texture2D> onTextureUpdated)
     {
-        VideoFrame frame;
-        lock (queueLock)
-        {
-            if (queue == null)
-                return;
+        if (queue == null)
+            return;
 
-            if (!queue.PollForFrame<VideoFrame>(out frame))
-                return;
-        }
+        VideoFrame frame;
+        if (!queue.PollForFrame<VideoFrame>(out frame))
+            return;
 
         using (frame)
         {
@@ -82,11 +51,7 @@ public sealed class QRFrameTextureSource : IDisposable
         source.OnStop -= OnStopStreaming;
         source.OnNewSample -= OnNewSample;
 
-        lock (queueLock)
-        {
-            isDisposed = true;
-            DisposeQueueLocked();
-        }
+        DisposeQueue();
 
         if (SourceTexture != null)
         {
@@ -97,18 +62,9 @@ public sealed class QRFrameTextureSource : IDisposable
 
     void OnStartStreaming(PipelineProfile activeProfile)
     {
-        Debug.Log("OnStartStreaming in QRFrame");
-
-        lock (queueLock)
-        {
-            if (isDisposed)
-                return;
-
-            DisposeQueueLocked();
-            queue = new FrameQueue(1);
-            matcher = new Predicate<Frame>(Matches);
-        }
-
+        DisposeQueue();
+        queue = new FrameQueue(1);
+        matcher = new Predicate<Frame>(Matches);
         source.OnNewSample -= OnNewSample;
         source.OnNewSample += OnNewSample;
     }
@@ -116,11 +72,7 @@ public sealed class QRFrameTextureSource : IDisposable
     void OnStopStreaming()
     {
         source.OnNewSample -= OnNewSample;
-
-        lock (queueLock)
-        {
-            DisposeQueueLocked();
-        }
+        DisposeQueue();
     }
 
     bool Matches(Frame frame)
@@ -138,14 +90,8 @@ public sealed class QRFrameTextureSource : IDisposable
                 using (var frames = frame.As<FrameSet>())
                 using (var matchedFrame = frames.FirstOrDefault(matcher))
                 {
-                    lock (queueLock)
-                    {
-                        if (isDisposed || queue == null || matchedFrame == null)
-                            return;
-
-                        matchedFrame.Keep();
+                    if (matchedFrame != null)
                         queue.Enqueue(matchedFrame);
-                    }
 
                     return;
                 }
@@ -155,16 +101,7 @@ public sealed class QRFrameTextureSource : IDisposable
                 return;
 
             using (frame)
-            {
-                lock (queueLock)
-                {
-                    if (isDisposed || queue == null)
-                        return;
-
-                    frame.Keep();
-                    queue.Enqueue(frame);
-                }
-            }
+                queue.Enqueue(frame);
         }
         catch (Exception e)
         {
@@ -177,19 +114,7 @@ public sealed class QRFrameTextureSource : IDisposable
         if (HasTextureConflict(frame))
             RecreateTexture(frame, filterMode);
 
-        int frameByteCount = frame.Stride * frame.Height;
-        if (flipHorizontally || flipVertically)
-        {
-            EnsureFrameBuffers(frameByteCount);
-            Marshal.Copy(frame.Data, frameBytes, 0, frameByteCount);
-            FlipFrame(frame, frameBytes, flippedFrameBytes, flipHorizontally, flipVertically);
-            SourceTexture.LoadRawTextureData(flippedFrameBytes);
-        }
-        else
-        {
-            SourceTexture.LoadRawTextureData(frame.Data, frameByteCount);
-        }
-
+        SourceTexture.LoadRawTextureData(frame.Data, frame.Stride * frame.Height);
         SourceTexture.Apply();
     }
 
@@ -220,64 +145,11 @@ public sealed class QRFrameTextureSource : IDisposable
 
     void DisposeQueue()
     {
-        lock (queueLock)
-        {
-            DisposeQueueLocked();
-        }
-    }
-
-    void DisposeQueueLocked()
-    {
         if (queue == null)
             return;
 
         queue.Dispose();
         queue = null;
-    }
-
-    void EnsureFrameBuffers(int frameByteCount)
-    {
-        if (frameBytes == null || frameBytes.Length != frameByteCount)
-            frameBytes = new byte[frameByteCount];
-        if (flippedFrameBytes == null || flippedFrameBytes.Length != frameByteCount)
-            flippedFrameBytes = new byte[frameByteCount];
-    }
-
-    static void FlipFrame(
-        VideoFrame frame,
-        byte[] sourceBytes,
-        byte[] destinationBytes,
-        bool flipHorizontally,
-        bool flipVertically)
-    {
-        int bytesPerPixel = frame.BitsPerPixel / 8;
-        int rowStride = frame.Stride;
-        int rowPixelBytes = frame.Width * bytesPerPixel;
-
-        for (int y = 0; y < frame.Height; y++)
-        {
-            int sourceRow = flipVertically ? frame.Height - 1 - y : y;
-            int sourceRowStart = sourceRow * rowStride;
-            int destinationRowStart = y * rowStride;
-            for (int x = 0; x < frame.Width; x++)
-            {
-                int sourceColumn = flipHorizontally ? frame.Width - 1 - x : x;
-                int sourceIndex = sourceRowStart + (sourceColumn * bytesPerPixel);
-                int destinationIndex = destinationRowStart + (x * bytesPerPixel);
-                Buffer.BlockCopy(sourceBytes, sourceIndex, destinationBytes, destinationIndex, bytesPerPixel);
-            }
-
-            int paddingBytes = rowStride - rowPixelBytes;
-            if (paddingBytes > 0)
-            {
-                Buffer.BlockCopy(
-                    sourceBytes,
-                    sourceRowStart + rowPixelBytes,
-                    destinationBytes,
-                    destinationRowStart + rowPixelBytes,
-                    paddingBytes);
-            }
-        }
     }
 
     static TextureFormat ConvertFormat(Format lrsFormat)
