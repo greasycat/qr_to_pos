@@ -10,7 +10,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from qr_to_pos.server import DetectionServer
+from marker_to_pos.server import DetectionServer
 
 IMAGE_PATH = Path(__file__).resolve().parent.parent / "assets" / "fake_background_multiple_qr.png"
 
@@ -68,8 +68,8 @@ def _write_server_config(
 
 @pytest.fixture()
 def stubbed_server(monkeypatch, tmp_path):
-    monkeypatch.setattr("qr_to_pos.server.QRDetector", lambda model_size="s": _DummyDetector())
-    monkeypatch.setattr("qr_to_pos.server.pyzbar_decode", lambda _crop: [_DummyDecode(b"stubbed-qr")])
+    monkeypatch.setattr("marker_to_pos.server.QRDetector", lambda model_size="s": _DummyDetector())
+    monkeypatch.setattr("marker_to_pos.server.pyzbar_decode", lambda _crop: [_DummyDecode(b"stubbed-qr")])
     return DetectionServer(
         host="localhost",
         port=0,
@@ -114,8 +114,8 @@ def test_detect_qrs_from_image(stubbed_server):
 
 
 def test_detect_qrs_includes_registration_projection(monkeypatch, tmp_path):
-    monkeypatch.setattr("qr_to_pos.server.QRDetector", lambda model_size="s": _DummyDetector())
-    monkeypatch.setattr("qr_to_pos.server.pyzbar_decode", lambda _crop: [_DummyDecode(b"stubbed-qr")])
+    monkeypatch.setattr("marker_to_pos.server.QRDetector", lambda model_size="s": _DummyDetector())
+    monkeypatch.setattr("marker_to_pos.server.pyzbar_decode", lambda _crop: [_DummyDecode(b"stubbed-qr")])
 
     registration_path = tmp_path / "homography.npy"
     coords_path = tmp_path / "coords.yml"
@@ -168,8 +168,8 @@ def test_detect_qrs_includes_registration_projection(monkeypatch, tmp_path):
 
 
 def test_detect_request_saves_debug_capture_from_config(monkeypatch, tmp_path):
-    monkeypatch.setattr("qr_to_pos.server.QRDetector", lambda model_size="s": _DummyDetector())
-    monkeypatch.setattr("qr_to_pos.server.pyzbar_decode", lambda _crop: [_DummyDecode(b"stubbed-qr")])
+    monkeypatch.setattr("marker_to_pos.server.QRDetector", lambda model_size="s": _DummyDetector())
+    monkeypatch.setattr("marker_to_pos.server.pyzbar_decode", lambda _crop: [_DummyDecode(b"stubbed-qr")])
 
     registration_path = tmp_path / "homography.npy"
     config_path = tmp_path / "config.yml"
@@ -218,8 +218,8 @@ def test_detect_request_saves_debug_capture_from_config(monkeypatch, tmp_path):
 
 
 def test_detect_request_prunes_debug_captures_to_configured_limit(monkeypatch, tmp_path):
-    monkeypatch.setattr("qr_to_pos.server.QRDetector", lambda model_size="s": _DummyDetector())
-    monkeypatch.setattr("qr_to_pos.server.pyzbar_decode", lambda _crop: [_DummyDecode(b"stubbed-qr")])
+    monkeypatch.setattr("marker_to_pos.server.QRDetector", lambda model_size="s": _DummyDetector())
+    monkeypatch.setattr("marker_to_pos.server.pyzbar_decode", lambda _crop: [_DummyDecode(b"stubbed-qr")])
 
     registration_path = tmp_path / "homography.npy"
     config_path = tmp_path / "config.yml"
@@ -254,7 +254,7 @@ def test_detect_request_prunes_debug_captures_to_configured_limit(monkeypatch, t
 
 
 def test_compute_depth_centroid_pct_returns_none_outside_registered_bounds(monkeypatch):
-    monkeypatch.setattr("qr_to_pos.server.QRDetector", lambda model_size="s": _DummyDetector())
+    monkeypatch.setattr("marker_to_pos.server.QRDetector", lambda model_size="s": _DummyDetector())
     server = DetectionServer(host="localhost", port=0, model_size="s")
 
     depth_bbox = np.array(
@@ -281,7 +281,7 @@ def test_compute_depth_centroid_pct_returns_none_outside_registered_bounds(monke
 
 def test_detect_action_does_not_flip_image(monkeypatch):
     detector = _SpyDetector()
-    monkeypatch.setattr("qr_to_pos.server.QRDetector", lambda model_size="s": detector)
+    monkeypatch.setattr("marker_to_pos.server.QRDetector", lambda model_size="s": detector)
     server = DetectionServer(host="localhost", port=0, model_size="s")
 
     image = np.zeros((140, 140, 3), dtype=np.uint8)
@@ -305,7 +305,7 @@ def test_detect_action_does_not_flip_image(monkeypatch):
 
 def test_detect_unity_action_flips_image_horizontally(monkeypatch):
     detector = _SpyDetector()
-    monkeypatch.setattr("qr_to_pos.server.QRDetector", lambda model_size="s": detector)
+    monkeypatch.setattr("marker_to_pos.server.QRDetector", lambda model_size="s": detector)
     server = DetectionServer(host="localhost", port=0, model_size="s")
 
     image = np.zeros((140, 140, 3), dtype=np.uint8)
@@ -329,7 +329,7 @@ def test_detect_unity_action_flips_image_horizontally(monkeypatch):
 
 def test_detect_unity_action_uses_yaml_image_action_pipeline(monkeypatch, tmp_path):
     detector = _SpyDetector()
-    monkeypatch.setattr("qr_to_pos.server.QRDetector", lambda model_size="s": detector)
+    monkeypatch.setattr("marker_to_pos.server.QRDetector", lambda model_size="s": detector)
 
     registration_path = tmp_path / "homography.npy"
     config_path = tmp_path / "config.yml"
@@ -367,7 +367,7 @@ def test_detect_unity_action_uses_yaml_image_action_pipeline(monkeypatch, tmp_pa
 
 
 def test_invalid_unity_image_action_in_yaml_raises(monkeypatch, tmp_path):
-    monkeypatch.setattr("qr_to_pos.server.QRDetector", lambda model_size="s": _SpyDetector())
+    monkeypatch.setattr("marker_to_pos.server.QRDetector", lambda model_size="s": _SpyDetector())
 
     registration_path = tmp_path / "homography.npy"
     config_path = tmp_path / "config.yml"
@@ -386,8 +386,8 @@ def test_invalid_unity_image_action_in_yaml_raises(monkeypatch, tmp_path):
 
 
 def test_detect_unity_request_saves_unity_metadata(monkeypatch, tmp_path):
-    monkeypatch.setattr("qr_to_pos.server.QRDetector", lambda model_size="s": _DummyDetector())
-    monkeypatch.setattr("qr_to_pos.server.pyzbar_decode", lambda _crop: [_DummyDecode(b"stubbed-qr")])
+    monkeypatch.setattr("marker_to_pos.server.QRDetector", lambda model_size="s": _DummyDetector())
+    monkeypatch.setattr("marker_to_pos.server.pyzbar_decode", lambda _crop: [_DummyDecode(b"stubbed-qr")])
 
     registration_path = tmp_path / "homography.npy"
     config_path = tmp_path / "config.yml"
@@ -438,15 +438,15 @@ def test_detect_unity_request_saves_unity_metadata(monkeypatch, tmp_path):
 
 
 def test_update_corners_action(monkeypatch):
-    monkeypatch.setattr("qr_to_pos.server.QRDetector", lambda model_size="s": _DummyDetector())
+    monkeypatch.setattr("marker_to_pos.server.QRDetector", lambda model_size="s": _DummyDetector())
     server = DetectionServer(host="localhost", port=0, model_size="s")
 
     monkeypatch.setattr(
-        "qr_to_pos.server.detect_box_corners_color",
+        "marker_to_pos.server.detect_box_corners_color",
         lambda _image: np.array([[10, 10], [110, 12], [108, 90], [12, 88]], dtype=np.float32),
     )
     monkeypatch.setattr(
-        "qr_to_pos.server.detect_box_corners_depth",
+        "marker_to_pos.server.detect_box_corners_depth",
         lambda _depth: np.array([[8, 14], [95, 11], [101, 80], [6, 83]], dtype=np.float32),
     )
 
@@ -470,7 +470,7 @@ def test_update_corners_action(monkeypatch):
 
 
 def test_update_registration_action(monkeypatch, tmp_path):
-    monkeypatch.setattr("qr_to_pos.server.QRDetector", lambda model_size="s": _DummyDetector())
+    monkeypatch.setattr("marker_to_pos.server.QRDetector", lambda model_size="s": _DummyDetector())
     server = DetectionServer(
         host="localhost",
         port=0,
@@ -484,7 +484,7 @@ def test_update_registration_action(monkeypatch, tmp_path):
         saved["matrix"] = matrix.copy()
         saved["path"] = path
 
-    monkeypatch.setattr("qr_to_pos.server.save_registration", fake_save_registration)
+    monkeypatch.setattr("marker_to_pos.server.save_registration", fake_save_registration)
 
     response = server.handle_json_message(
         {
@@ -521,7 +521,7 @@ class _DummyAprilTagDetector:
 def test_config_selects_apriltag_detector(monkeypatch, tmp_path):
     sentinel = _DummyAprilTagDetector()
     monkeypatch.setattr(
-        "qr_to_pos.apriltag_detector.AprilTagDetector",
+        "marker_to_pos.apriltag_detector.AprilTagDetector",
         lambda **_kwargs: sentinel,
     )
 
@@ -537,13 +537,13 @@ def test_config_selects_apriltag_detector(monkeypatch, tmp_path):
 def test_apriltag_result_skips_pyzbar(monkeypatch, tmp_path):
     """When a detection dict contains _decoded, pyzbar must not be called."""
     monkeypatch.setattr(
-        "qr_to_pos.apriltag_detector.AprilTagDetector",
+        "marker_to_pos.apriltag_detector.AprilTagDetector",
         lambda **_kwargs: _DummyAprilTagDetector(),
     )
 
     pyzbar_called = []
     monkeypatch.setattr(
-        "qr_to_pos.server.pyzbar_decode",
+        "marker_to_pos.server.pyzbar_decode",
         lambda _crop: pyzbar_called.append(True) or [],
     )
 
@@ -563,10 +563,10 @@ def test_apriltag_result_skips_pyzbar(monkeypatch, tmp_path):
 def test_apriltag_result_mapping(monkeypatch, tmp_path):
     """AprilTag detection is correctly mapped to QRCode fields."""
     monkeypatch.setattr(
-        "qr_to_pos.apriltag_detector.AprilTagDetector",
+        "marker_to_pos.apriltag_detector.AprilTagDetector",
         lambda **_kwargs: _DummyAprilTagDetector(),
     )
-    monkeypatch.setattr("qr_to_pos.server.pyzbar_decode", lambda _crop: [])
+    monkeypatch.setattr("marker_to_pos.server.pyzbar_decode", lambda _crop: [])
 
     registration_path = tmp_path / "homography.npy"
     config_path = tmp_path / "config.yml"

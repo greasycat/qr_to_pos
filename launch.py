@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Interactive launcher for qr_to_pos services.
+"""Interactive launcher for marker_to_pos services.
 
 Keys:
   j / ↓       move selection down
@@ -27,7 +27,7 @@ ROOT = Path(__file__).parent
 SERVICES = [
     {
         "name": "QR WebSocket Server",
-        "cmd": ["uv", "run", "python", "-m", "qr_to_pos.server"],
+        "cmd": ["uv", "run", "python", "-m", "marker_to_pos.server"],
         "hint": "ws://localhost:8765",
     },
     {
@@ -145,7 +145,7 @@ class ServiceItem(ListItem):
 
 
 class LauncherApp(App):
-    TITLE = "qr_to_pos launcher"
+    TITLE = "marker_to_pos launcher"
     BINDINGS = [
         Binding("j", "cursor_down", "Down", show=False),
         Binding("k", "cursor_up", "Up", show=False),

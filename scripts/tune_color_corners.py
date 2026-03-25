@@ -27,7 +27,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from qr_to_pos.registration import detect_box_corners_color, pick_color_corners_interactive
+from marker_to_pos.registration import detect_box_corners_color, pick_color_corners_interactive
 
 
 def main() -> None:

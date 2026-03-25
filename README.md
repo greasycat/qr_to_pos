@@ -1,6 +1,6 @@
-# qr_to_pos Launch and Server Notes
+# marker_to_pos Launch and Server Notes
 
-This file documents the current startup flow implemented in `launch.py`, the QR WebSocket server in `qr_to_pos/server.py`, and the Flask backend in `web/app.py`.
+This file documents the current startup flow implemented in `launch.py`, the QR WebSocket server in `marker_to_pos/server.py`, and the Flask backend in `web/app.py`.
 
 ## Launcher
 
@@ -15,7 +15,7 @@ uv run python launch.py
 1. `QR WebSocket Server`
    Command:
    ```bash
-   uv run python -m qr_to_pos.server
+   uv run python -m marker_to_pos.server
    ```
    Default endpoint: `ws://localhost:8765`
 
@@ -41,7 +41,7 @@ Launcher key bindings:
 Start directly with:
 
 ```bash
-uv run python -m qr_to_pos.server [--host HOST] [--port PORT] [--model-size {n,s,m,l}] [--save-decoding-images]
+uv run python -m marker_to_pos.server [--host HOST] [--port PORT] [--model-size {n,s,m,l}] [--save-decoding-images]
 ```
 
 Implemented CLI options:
@@ -57,7 +57,7 @@ Internal defaults that are not exposed as CLI flags:
 
 - `max_size = 16 * 1024 * 1024` bytes for incoming WebSocket messages
 - `registration_path = assets/registration/homography.npy`
-- `debug_capture_dir = $TMPDIR/qr_to_pos/ws_debug`
+- `debug_capture_dir = $TMPDIR/marker_to_pos/ws_debug`
 
 Supported WebSocket request styles:
 
@@ -85,7 +85,7 @@ Response behavior:
 - Each detection may include `bbox`, `confidence`, `decoded`, `homography`, `depth_bbox`, `depth_centroid`, and `depth_centroid_pct`
 - Invalid JSON or missing fields return JSON errors
 
-Debug capture settings live in [`assets/registration/config.yml`](/home/rongfei/WorkSpace/qr_to_pos/assets/registration/config.yml):
+Debug capture settings live in [`assets/registration/config.yml`](/home/rongfei/WorkSpace/marker_to_pos/assets/registration/config.yml):
 
 ```yaml
 ws_debug:
@@ -141,5 +141,5 @@ Flask routes exposed by `web/app.py`:
 ## Practical Notes
 
 - If you use `launch.py`, the launcher starts both servers with their defaults only.
-- If you need custom host or port values, start `qr_to_pos.server` and `web/app.py` directly instead of using `launch.py`.
+- If you need custom host or port values, start `marker_to_pos.server` and `web/app.py` directly instead of using `launch.py`.
 - The Flask UI assumes the QR WebSocket server is reachable at `ws://localhost:8765` unless changed in the browser UI.

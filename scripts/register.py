@@ -26,7 +26,7 @@ import numpy as np
 # Allow running from repo root without installing the package
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from qr_to_pos.registration import (
+from marker_to_pos.registration import (
     compute_homography,
     detect_box_corners_color,
     detect_box_corners_depth,

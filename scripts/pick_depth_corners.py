@@ -26,7 +26,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from qr_to_pos.registration import (
+from marker_to_pos.registration import (
     detect_box_corners_depth,
     load_depth_map,
     pick_depth_corners_interactive,

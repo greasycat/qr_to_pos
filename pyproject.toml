@@ -1,5 +1,5 @@
 [project]
-name = "qr-to-pos"
+name = "marker-to-pos"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"

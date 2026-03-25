@@ -6,7 +6,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from qr_to_pos import registration
+from marker_to_pos import registration
 
 
 def _make_color_quad(points: np.ndarray) -> np.ndarray:

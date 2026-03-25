@@ -33,7 +33,7 @@ _DEFAULT_REGISTRATION_PATH = (
 )
 _DEFAULT_REGISTRATION_COORDS_PATH = _DEFAULT_REGISTRATION_PATH.with_name("coords.yml")
 _NORMALIZED_COORD_EPSILON = 1e-4
-_DEFAULT_DEBUG_CAPTURE_DIR = Path(tempfile.gettempdir()) / "qr_to_pos" / "ws_debug"
+_DEFAULT_DEBUG_CAPTURE_DIR = Path(tempfile.gettempdir()) / "marker_to_pos" / "ws_debug"
 _DEFAULT_MAX_SAVED_IMAGES = 200
 _DEFAULT_UNITY_IMAGE_ACTIONS = ("flip_h",)
 

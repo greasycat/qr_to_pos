@@ -32,7 +32,7 @@ from matplotlib.widgets import Slider
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from qr_to_pos.registration import load_depth_map, visualize_depth
+from marker_to_pos.registration import load_depth_map, visualize_depth
 
 _CONFIG_PATH = Path(__file__).parent.parent / "assets" / "registration" / "config.yml"
 _CORNER_LABELS = ["TL", "TR", "BR", "BL"]
