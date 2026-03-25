@@ -1,6 +1,6 @@
 from .camera import Camera, Frame
 from .inspection import InteractiveCLI, show_camera, show_detections
-from .processor import ProcessingResult, QRCode, QRCodeProcessor
+from .processor import MarkerDetection, MarkerDetectionProcessor, ProcessingResult
 from .registration import (
     compute_homography,
     detect_box_corners_color,
@@ -25,8 +25,8 @@ __all__ = [
     "Frame",
     "InteractiveCLI",
     "ProcessingResult",
-    "QRCode",
-    "QRCodeProcessor",
+    "MarkerDetection",
+    "MarkerDetectionProcessor",
     "compute_homography",
     "detect_box_corners_color",
     "detect_box_corners_depth",

@@ -2,7 +2,7 @@ using Intel.RealSense;
 using System;
 using UnityEngine;
 
-public sealed class QRFrameTextureSource : IDisposable
+public sealed class MarkerFrameTextureSource : IDisposable
 {
     readonly RsFrameProvider source;
     readonly Stream stream;
@@ -14,7 +14,7 @@ public sealed class QRFrameTextureSource : IDisposable
 
     public Texture2D SourceTexture { get; private set; }
 
-    public QRFrameTextureSource(RsFrameProvider source, Stream stream, Format format, int streamIndex)
+    public MarkerFrameTextureSource(RsFrameProvider source, Stream stream, Format format, int streamIndex)
     {
         this.source = source;
         this.stream = stream;

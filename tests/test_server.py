@@ -567,7 +567,7 @@ def test_invalid_detector_type_in_config_raises(monkeypatch, tmp_path):
 
 
 def test_apriltag_result_mapping(monkeypatch, tmp_path):
-    """AprilTag detection is correctly mapped to QRCode fields."""
+    """AprilTag detection is correctly mapped to MarkerDetection fields."""
     monkeypatch.setattr(
         "marker_to_pos.server.AprilTagDetector",
         lambda: _DummyAprilTagDetector(),

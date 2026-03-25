@@ -13,14 +13,14 @@ from .detection_geometry import bbox_xyxy_from_detection
 @dataclass
 class ProcessingResult:
     """Container for processing results with metadata."""
-    result: list["QRCode"]
+    result: list["MarkerDetection"]
     frame_index: int
     frame_timestamp: float
     processing_time: float
 
 
 @dataclass
-class QRCode:
+class MarkerDetection:
     """Detected marker data."""
     data: str
     bbox: tuple[int, int, int, int] | None = None
@@ -28,7 +28,7 @@ class QRCode:
     decoded: str | None = None
 
 
-class QRCodeProcessor:
+class MarkerDetectionProcessor:
     """Detects AprilTags in frames."""
 
     def __init__(
@@ -125,15 +125,14 @@ class QRCodeProcessor:
                 except Exception as e:
                     print(f"Error in result callback: {e}")
 
-    def process_frame(self, frame: Frame) -> list[QRCode] | None:
+    def process_frame(self, frame: Frame) -> list[MarkerDetection] | None:
         try:
             detections = self.detector.detect(image=frame.data, is_bgr=True)
 
             if not detections:
                 return None
 
-            # Convert detections to QRCode objects
-            qr_codes = []
+            marker_detections = []
 
             for detection in detections:
                 x1, y1, x2, y2 = bbox_xyxy_from_detection(detection)
@@ -143,22 +142,22 @@ class QRCodeProcessor:
                 # Ensure coordinates are standard Python ints
                 x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
 
-                qr_code = QRCode(
+                marker_detection = MarkerDetection(
                     data=data,  # type: ignore
                     bbox=(x1, y1, x2, y2),
                     confidence=confidence,  # type: ignore
                     decoded=detection.get("_decoded") or detection.get("decoded"),
                 )
-                qr_codes.append(qr_code)
+                marker_detections.append(marker_detection)
 
             # Return all detected markers
-            return qr_codes if qr_codes else None
+            return marker_detections if marker_detections else None
 
         except Exception as e:
             print(f"Error processing frame: {e}")
             return None
 
-    def __enter__(self) -> "QRCodeProcessor":
+    def __enter__(self) -> "MarkerDetectionProcessor":
         self.start()
         return self
 

@@ -2,7 +2,7 @@ using System;
 using UnityEngine;
 
 [Serializable]
-public struct QRDetection
+public struct MarkerDetection
 {
     public string data;
     public int[] bbox;
@@ -15,18 +15,18 @@ public struct QRDetection
 [Serializable]
 public struct DetectionResponse
 {
-    public QRDetection[] detections;
+    public MarkerDetection[] detections;
     public int count;
     public float processing_time;
     public string error;
 }
 
-public struct QRDebugMarkerPlacement
+public struct MarkerDebugPlacement
 {
     public string Name;
     public Vector3 WorldPosition;
 
-    public QRDebugMarkerPlacement(string name, Vector3 worldPosition)
+    public MarkerDebugPlacement(string name, Vector3 worldPosition)
     {
         Name = name;
         WorldPosition = worldPosition;

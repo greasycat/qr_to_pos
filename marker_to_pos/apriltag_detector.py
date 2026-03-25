@@ -17,13 +17,13 @@ class AprilTagDetector:
     """Wraps pupil_apriltags.Detector with the project's shared detect() interface.
 
     Each dict returned by detect() has the same keys consumed by
-    DetectionServer.detect() and QRCodeProcessor.process_frame():
+    DetectionServer.detect() and MarkerDetectionProcessor.process_frame():
       - quad_xy: (4, 2) float64 points in image space
       - bbox_xyxy: (x1, y1, x2, y2) derived from quad_xy
       - confidence: decision_margin float
           NOTE: decision_margin is a raw float (typically 0-200+)
           reflecting decode quality.
-      - data: str(tag_id) — used as QRCode.data in the wire protocol
+      - data: str(tag_id) — used as MarkerDetection.data in the wire protocol
       - _decoded: "family:tag_id" — injected for downstream display/identity
     """
 

@@ -4,7 +4,7 @@ using System.Text;
 using System.Threading.Tasks;
 using UnityEngine;
 
-public sealed class QRDetectionWebSocketClient
+public sealed class MarkerDetectionWebSocketClient
 {
     [Serializable]
     struct DetectUnityRequest
@@ -25,7 +25,7 @@ public sealed class QRDetectionWebSocketClient
     bool sending;
     float lastSendTime;
 
-    public QRDetectionWebSocketClient(string serverUrl, Action<DetectionResponse> onDetectionResponse)
+    public MarkerDetectionWebSocketClient(string serverUrl, Action<DetectionResponse> onDetectionResponse)
     {
         websocket = new WebSocket(serverUrl);
         this.onDetectionResponse = onDetectionResponse;

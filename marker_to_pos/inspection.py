@@ -7,7 +7,7 @@ import cv2
 import numpy as np
 
 from .camera import Camera
-from .processor import QRCode, QRCodeProcessor
+from .processor import MarkerDetection, MarkerDetectionProcessor
 
 
 def show_camera(camera: Camera, window_name: str = 'Camera View') -> None:
@@ -33,7 +33,7 @@ def show_camera(camera: Camera, window_name: str = 'Camera View') -> None:
 
 def show_detections(
     camera: Camera,
-    get_detections: Callable[[], list[QRCode]],
+    get_detections: Callable[[], list[MarkerDetection]],
     window_name: str = "AprilTag Detection",
 ) -> None:
     """Side-by-side raw/annotated view with marker bounding boxes. Blocks until 'q' or window closed."""
@@ -93,7 +93,7 @@ class InteractiveCLI:
 
     def __init__(self):
         self.camera: Camera | None = None
-        self.processor: QRCodeProcessor | None = None
+        self.processor: MarkerDetectionProcessor | None = None
         self.last_detection = None
         self.latest_detections: list = []
 
@@ -145,7 +145,7 @@ class InteractiveCLI:
                 print("Warning: Camera started but no frames captured yet.")
 
             print("Starting AprilTag processor...")
-            self.processor = QRCodeProcessor(
+            self.processor = MarkerDetectionProcessor(
                 camera=self.camera,
                 min_interval=0.1,
                 model_size="s",

@@ -41,12 +41,12 @@ public class MarkerDetectionRenderer : MonoBehaviour
     int detectionCount;
     int outOfBoundsConversionCount;
 
-    readonly List<QRDetection> detections = new List<QRDetection>();
+    readonly List<MarkerDetection> detections = new List<MarkerDetection>();
     readonly object detectionsLock = new object();
 
-    QRFrameTextureSource frameTextureSource;
-    QRDetectionWebSocketClient detectionClient;
-    QRMarkerManager markerManager;
+    MarkerFrameTextureSource frameTextureSource;
+    MarkerDetectionWebSocketClient detectionClient;
+    MarkerManager markerManager;
     Texture2D currentSourceTexture;
     int lastDebugTextureVersion = -1;
 
@@ -63,14 +63,14 @@ public class MarkerDetectionRenderer : MonoBehaviour
         if (markerParent == null)
             markerParent = transform;
 
-        markerManager = new QRMarkerManager();
+        markerManager = new MarkerManager();
         detectionsDirty = true;
         TerrainEvents.OnHeightmapChanged += HandleTerrainHeightmapChanged;
 
         if (!debugMode)
             TryInitializeLiveFrameSource();
 
-        detectionClient = new QRDetectionWebSocketClient(serverUrl, HandleDetectionResponse);
+        detectionClient = new MarkerDetectionWebSocketClient(serverUrl, HandleDetectionResponse);
 
         try
         {
@@ -140,8 +140,8 @@ public class MarkerDetectionRenderer : MonoBehaviour
                 sourceTexture,
                 sendInterval,
                 debugMode
-                    ? QRDetectionWebSocketClient.DetectionPayloadType.Detect
-                    : QRDetectionWebSocketClient.DetectionPayloadType.DetectUnity);
+                    ? MarkerDetectionWebSocketClient.DetectionPayloadType.Detect
+                    : MarkerDetectionWebSocketClient.DetectionPayloadType.DetectUnity);
     }
 
     void HandleDetectionResponse(DetectionResponse response)
@@ -176,7 +176,7 @@ public class MarkerDetectionRenderer : MonoBehaviour
 
         missingTerrainLogged = false;
 
-        QRTerrainMapper terrainMapper = CreateTerrainMapper();
+        MarkerTerrainMapper terrainMapper = CreateTerrainMapper();
         if (showDebugBounds || debugMode)
         {
             markerManager.BeginDebugMarkerRefresh();
@@ -191,15 +191,15 @@ public class MarkerDetectionRenderer : MonoBehaviour
         if (currentSourceTexture == null)
             return;
 
-        List<QRDetection> currentDetections;
+        List<MarkerDetection> currentDetections;
         lock (detectionsLock)
         {
-            currentDetections = new List<QRDetection>(detections);
+            currentDetections = new List<MarkerDetection>(detections);
         }
 
         for (int i = 0; i < currentDetections.Count; i++)
         {
-            QRDetection detection = currentDetections[i];
+            MarkerDetection detection = currentDetections[i];
             Vector3 worldPosition;
             bool isOutOfBounds;
             if (!terrainMapper.TryGetMarkerPosition(detection, markerVerticalOffset, out worldPosition, out isOutOfBounds))
@@ -231,16 +231,16 @@ public class MarkerDetectionRenderer : MonoBehaviour
         }
     }
 
-    void SpawnDebugBounds(QRTerrainMapper terrainMapper)
+    void SpawnDebugBounds(MarkerTerrainMapper terrainMapper)
     {
-        List<QRDebugMarkerPlacement> markers = terrainMapper.GetDebugBounds(debugBoundsY);
+        List<MarkerDebugPlacement> markers = terrainMapper.GetDebugBounds(debugBoundsY);
         for (int i = 0; i < markers.Count; i++)
             markerManager.SpawnDebugMarker(markerParent, markers[i].WorldPosition, debugBoundsScale, debugBoundsColor, markers[i].Name);
     }
 
-    QRTerrainMapper CreateTerrainMapper()
+    MarkerTerrainMapper CreateTerrainMapper()
     {
-        return new QRTerrainMapper(
+        return new MarkerTerrainMapper(
             terrain,
             flipX,
             flipZ);
@@ -256,8 +256,8 @@ public class MarkerDetectionRenderer : MonoBehaviour
 
     void PumpDebugTexture()
     {
-        Texture2D debugTexture = QRDebugImageStore.SourceTexture;
-        int debugTextureVersion = QRDebugImageStore.Version;
+        Texture2D debugTexture = MarkerDebugImageStore.SourceTexture;
+        int debugTextureVersion = MarkerDebugImageStore.Version;
 
         if (debugTexture == null)
         {
@@ -292,7 +292,7 @@ public class MarkerDetectionRenderer : MonoBehaviour
             return;
         }
 
-        frameTextureSource = new QRFrameTextureSource(Source, _stream, _format, _streamIndex);
+        frameTextureSource = new MarkerFrameTextureSource(Source, _stream, _format, _streamIndex);
         frameTextureSource.Initialize();
         liveFrameSourceInitialized = true;
         missingSourceLogged = false;
@@ -314,7 +314,7 @@ public class MarkerDetectionRenderer : MonoBehaviour
         detectionsDirty = true;
     }
 
-    static string GetDetectionLabel(QRDetection detection)
+    static string GetDetectionLabel(MarkerDetection detection)
     {
         if (!string.IsNullOrEmpty(detection.decoded))
             return detection.decoded;
@@ -324,7 +324,7 @@ public class MarkerDetectionRenderer : MonoBehaviour
         return "Marker";
     }
 
-    static string GetDepthCentroidPercentageLabel(QRDetection detection)
+    static string GetDepthCentroidPercentageLabel(MarkerDetection detection)
     {
         if (detection.depth_centroid_pct == null)
             return "<null>";

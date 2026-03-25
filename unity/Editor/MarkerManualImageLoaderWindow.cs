@@ -2,7 +2,7 @@ using System.IO;
 using UnityEditor;
 using UnityEngine;
 
-public sealed class QRManualImageLoaderWindow : EditorWindow
+public sealed class MarkerManualImageLoaderWindow : EditorWindow
 {
     const string Title = "Marker Debug Image Loader";
 
@@ -11,7 +11,7 @@ public sealed class QRManualImageLoaderWindow : EditorWindow
     [MenuItem("Window/Markers/Debug Image Loader")]
     static void OpenWindow()
     {
-        GetWindow<QRManualImageLoaderWindow>(Title);
+        GetWindow<MarkerManualImageLoaderWindow>(Title);
     }
 
     void OnGUI()
@@ -26,13 +26,13 @@ public sealed class QRManualImageLoaderWindow : EditorWindow
 
             if (GUILayout.Button("Clear", GUILayout.Height(28f)))
             {
-                QRDebugImageStore.Clear();
+                MarkerDebugImageStore.Clear();
                 Repaint();
             }
         }
 
-        Texture2D texture = QRDebugImageStore.SourceTexture;
-        string sourceLabel = string.IsNullOrEmpty(QRDebugImageStore.SourceLabel) ? "No image loaded" : QRDebugImageStore.SourceLabel;
+        Texture2D texture = MarkerDebugImageStore.SourceTexture;
+        string sourceLabel = string.IsNullOrEmpty(MarkerDebugImageStore.SourceLabel) ? "No image loaded" : MarkerDebugImageStore.SourceLabel;
         EditorGUILayout.Space();
         EditorGUILayout.LabelField("Current Image", sourceLabel);
 
@@ -64,7 +64,7 @@ public sealed class QRManualImageLoaderWindow : EditorWindow
             return;
         }
 
-        if (!QRDebugImageStore.TrySetImage(imageBytes, Path.GetFileName(path)))
+        if (!MarkerDebugImageStore.TrySetImage(imageBytes, Path.GetFileName(path)))
         {
             Debug.LogError("MarkerManualImageLoaderWindow: Failed to load image.");
             return;

@@ -17,7 +17,7 @@ from websockets.asyncio.server import serve
 
 from .apriltag_detector import AprilTagDetector
 from .detection_geometry import bbox_xyxy_from_detection
-from .processor import QRCode
+from .processor import MarkerDetection
 from .registration import (
     compute_homography,
     detect_box_corners_color,
@@ -88,26 +88,26 @@ class DetectionServer:
         self._capture_sequence = 0
         self.detector_type = detector_type
 
-    def detect(self, image: np.ndarray) -> list[QRCode]:
+    def detect(self, image: np.ndarray) -> list[MarkerDetection]:
         detections = self.detector.detect(image=image, is_bgr=True)
         if not detections:
             return []
 
-        qr_codes: list[QRCode] = []
+        marker_detections: list[MarkerDetection] = []
         for detection in detections:
             x1, y1, x2, y2 = bbox_xyxy_from_detection(detection)
             x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
             decoded = detection.get("_decoded") or detection.get("decoded")
 
-            qr_codes.append(
-                QRCode(
+            marker_detections.append(
+                MarkerDetection(
                     data=detection.get("data", ""),  # type: ignore
                     bbox=(x1, y1, x2, y2),
                     confidence=detection.get("confidence", 1.0),  # type: ignore
                     decoded=decoded,
                 )
             )
-        return qr_codes
+        return marker_detections
 
     def decode_image(self, raw: bytes) -> np.ndarray:
         buf = np.frombuffer(raw, dtype=np.uint8)
@@ -305,7 +305,7 @@ class DetectionServer:
 
     def _serialize_detection(
         self,
-        qr: QRCode,
+        qr: MarkerDetection,
         homography: np.ndarray | None,
         depth_corners: np.ndarray | None,
     ) -> dict[str, Any]:
@@ -453,15 +453,15 @@ class DetectionServer:
 
     def detect_response(self, image: np.ndarray, action: str = "detect") -> dict[str, Any]:
         start = time.perf_counter()
-        qr_codes = self.detect(image)
+        marker_detections = self.detect(image)
         processing_time = time.perf_counter() - start
         homography = self._load_registration_matrix()
         depth_corners = self._load_registration_depth_corners()
         return {
             "action": action,
             "homography": self._serialize_matrix(homography),
-            "detections": [self._serialize_detection(qr, homography, depth_corners) for qr in qr_codes],
-            "count": len(qr_codes),
+            "detections": [self._serialize_detection(qr, homography, depth_corners) for qr in marker_detections],
+            "count": len(marker_detections),
             "processing_time": round(processing_time, 4),
         }
 
