@@ -11,6 +11,7 @@ dependencies = [
     "opencv-python>=4.13.0.90",
     "pybind11-stubgen>=2.5.5",
     "pyrealsense2>=2.56.5.9235",
+    "pupil-apriltags>=1.0.4",
     "pyzbar>=0.1.9",
     "qrdet>=2.5",
     "websockets>=15.0",

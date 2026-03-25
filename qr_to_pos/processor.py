@@ -35,10 +35,15 @@ class QRCodeProcessor:
         camera: Camera,
         min_interval: float = 0.1,
         model_size: str = 's',
+        detector_type: str = 'qr',
     ) -> None:
         self.camera = camera
         self.min_interval = min_interval
-        self.detector = QRDetector(model_size=model_size)
+        if detector_type == "apriltag":
+            from .apriltag_detector import AprilTagDetector
+            self.detector = AprilTagDetector()
+        else:
+            self.detector = QRDetector(model_size=model_size)
         self._processing_thread: threading.Thread | None = None
         self._running = False
         self._callbacks: list[Callable[[ProcessingResult], None]] = []
@@ -127,7 +132,8 @@ class QRCodeProcessor:
                 qr_code = QRCode(
                     data=data,  # type: ignore
                     bbox=(x1, y1, x2, y2),
-                    confidence=confidence  # type: ignore
+                    confidence=confidence,  # type: ignore
+                    decoded=detection.get("_decoded"),  # None for QR, "family:id" for AprilTag
                 )
                 qr_codes.append(qr_code)
             

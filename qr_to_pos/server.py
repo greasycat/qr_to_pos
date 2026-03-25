@@ -55,12 +55,18 @@ class DetectionServer:
         self.host = host
         self.port = port
         self.max_size = max_size
-        self.detector = QRDetector(model_size=model_size)
         self.registration_path = Path(registration_path)
         if registration_coords_path is None:
             registration_coords_path = self.registration_path.with_name(_DEFAULT_REGISTRATION_COORDS_PATH.name)
         self.registration_coords_path = Path(registration_coords_path)
         config = self._load_server_config()
+        detector_config = config.get("detector", {}) if isinstance(config.get("detector"), dict) else {}
+        detector_type = str(detector_config.get("type", "qr")).strip().lower()
+        if detector_type == "apriltag":
+            from .apriltag_detector import AprilTagDetector
+            self.detector = AprilTagDetector()
+        else:
+            self.detector = QRDetector(model_size=model_size)
         debug_config = config.get("ws_debug", {}) if isinstance(config.get("ws_debug"), dict) else {}
         processing_config = (
             config.get("ws_processing", {}) if isinstance(config.get("ws_processing"), dict) else {}
@@ -97,14 +103,18 @@ class DetectionServer:
             x1, y1, x2, y2 = detection["bbox_xyxy"]  # type: ignore
             x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
 
-            # Decode QR content from the cropped region using pyzbar
-            pad = 10
-            h, w = gray.shape
-            crop = gray[max(0, y1 - pad) : min(h, y2 + pad), max(0, x1 - pad) : min(w, x2 + pad)]
-            decoded = None
-            results = pyzbar_decode(crop)
-            if results:
-                decoded = results[0].data.decode("utf-8", errors="replace")
+            if "_decoded" in detection:
+                # AprilTag result: identity already decoded, skip pyzbar
+                decoded = detection["_decoded"]
+            else:
+                # QR result: decode content from the cropped region using pyzbar
+                pad = 10
+                h, w = gray.shape
+                crop = gray[max(0, y1 - pad) : min(h, y2 + pad), max(0, x1 - pad) : min(w, x2 + pad)]
+                decoded = None
+                results = pyzbar_decode(crop)
+                if results:
+                    decoded = results[0].data.decode("utf-8", errors="replace")
 
             qr_codes.append(
                 QRCode(

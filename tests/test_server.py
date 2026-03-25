@@ -46,6 +46,7 @@ def _write_server_config(
     save_decoding_images: bool = False,
     max_saved_images: int = 2,
     unity_image_actions: list[str] | None = None,
+    detector_type: str | None = None,
 ) -> None:
     payload = {
         "ws_debug": {
@@ -57,6 +58,8 @@ def _write_server_config(
         payload["ws_processing"] = {
             "unity_image_actions": unity_image_actions,
         }
+    if detector_type is not None:
+        payload["detector"] = {"type": detector_type}
     path.write_text(
         yaml.safe_dump(payload, sort_keys=False),
         encoding="utf-8",
@@ -496,3 +499,87 @@ def test_update_registration_action(monkeypatch, tmp_path):
     assert len(response["homography"]) == 3
     np.testing.assert_allclose(saved["matrix"], np.array(response["homography"]))
     assert saved["path"] == str(tmp_path / "homography.npy")
+
+
+# ── AprilTag detector tests ──────────────────────────────────────────────────
+
+
+class _DummyAprilTagDetector:
+    """Minimal AprilTagDetector stand-in for tests."""
+
+    def detect(self, image, *, is_bgr=True):
+        return [
+            {
+                "bbox_xyxy": (10.0, 20.0, 90.0, 80.0),
+                "confidence": 42.5,
+                "data": "7",
+                "_decoded": "tag36h11:7",
+            }
+        ]
+
+
+def test_config_selects_apriltag_detector(monkeypatch, tmp_path):
+    sentinel = _DummyAprilTagDetector()
+    monkeypatch.setattr(
+        "qr_to_pos.apriltag_detector.AprilTagDetector",
+        lambda **_kwargs: sentinel,
+    )
+
+    registration_path = tmp_path / "homography.npy"
+    config_path = tmp_path / "config.yml"
+    _write_server_config(config_path, detector_type="apriltag")
+
+    server = DetectionServer(host="localhost", port=0, registration_path=registration_path)
+
+    assert server.detector is sentinel
+
+
+def test_apriltag_result_skips_pyzbar(monkeypatch, tmp_path):
+    """When a detection dict contains _decoded, pyzbar must not be called."""
+    monkeypatch.setattr(
+        "qr_to_pos.apriltag_detector.AprilTagDetector",
+        lambda **_kwargs: _DummyAprilTagDetector(),
+    )
+
+    pyzbar_called = []
+    monkeypatch.setattr(
+        "qr_to_pos.server.pyzbar_decode",
+        lambda _crop: pyzbar_called.append(True) or [],
+    )
+
+    registration_path = tmp_path / "homography.npy"
+    config_path = tmp_path / "config.yml"
+    _write_server_config(config_path, detector_type="apriltag")
+
+    server = DetectionServer(host="localhost", port=0, registration_path=registration_path)
+
+    image = np.zeros((100, 100, 3), dtype=np.uint8)
+    qr_codes = server.detect(image)
+
+    assert not pyzbar_called, "pyzbar_decode should not be called for AprilTag detections"
+    assert len(qr_codes) == 1
+
+
+def test_apriltag_result_mapping(monkeypatch, tmp_path):
+    """AprilTag detection is correctly mapped to QRCode fields."""
+    monkeypatch.setattr(
+        "qr_to_pos.apriltag_detector.AprilTagDetector",
+        lambda **_kwargs: _DummyAprilTagDetector(),
+    )
+    monkeypatch.setattr("qr_to_pos.server.pyzbar_decode", lambda _crop: [])
+
+    registration_path = tmp_path / "homography.npy"
+    config_path = tmp_path / "config.yml"
+    _write_server_config(config_path, detector_type="apriltag")
+
+    server = DetectionServer(host="localhost", port=0, registration_path=registration_path)
+
+    image = np.zeros((100, 100, 3), dtype=np.uint8)
+    qr_codes = server.detect(image)
+
+    assert len(qr_codes) == 1
+    qr = qr_codes[0]
+    assert qr.data == "7"
+    assert qr.decoded == "tag36h11:7"
+    assert qr.bbox == (10, 20, 90, 80)
+    assert qr.confidence == 42.5

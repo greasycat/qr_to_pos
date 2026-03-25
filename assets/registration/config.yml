@@ -1,3 +1,5 @@
+detector:
+  type: qr  # Options: qr | apriltag
 depth_clip:
   min: 0.866
   max: 1.311
