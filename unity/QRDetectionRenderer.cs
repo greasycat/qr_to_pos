@@ -144,7 +144,12 @@ public class QRDetectionRenderer : MonoBehaviour
     {
         currentSourceTexture = sourceTexture;
         if (detectionClient != null)
-            detectionClient.TrySend(sourceTexture, sendInterval);
+            detectionClient.TrySend(
+                sourceTexture,
+                sendInterval,
+                debugMode
+                    ? QRDetectionWebSocketClient.DetectionPayloadType.Detect
+                    : QRDetectionWebSocketClient.DetectionPayloadType.DetectUnity);
     }
 
     void HandleDetectionResponse(DetectionResponse response)

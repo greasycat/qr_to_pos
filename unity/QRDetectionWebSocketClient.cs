@@ -13,6 +13,12 @@ public sealed class QRDetectionWebSocketClient
         public string image;
     }
 
+    public enum DetectionPayloadType
+    {
+        Detect,
+        DetectUnity,
+    }
+
     readonly WebSocket websocket;
     readonly Action<DetectionResponse> onDetectionResponse;
 
@@ -42,7 +48,7 @@ public sealed class QRDetectionWebSocketClient
 #endif
     }
 
-    public async void TrySend(Texture2D sourceTexture, float sendInterval)
+    public async void TrySend(Texture2D sourceTexture, float sendInterval, DetectionPayloadType payloadType = DetectionPayloadType.DetectUnity)
     {
         if (sending)
             return;
@@ -61,7 +67,7 @@ public sealed class QRDetectionWebSocketClient
             byte[] png = sourceTexture.EncodeToPNG();
             var request = new DetectUnityRequest
             {
-                action = "detect_unity",
+                action = payloadType == DetectionPayloadType.Detect ? "detect" : "detect_unity",
                 image = Convert.ToBase64String(png),
             };
             string payload = JsonUtility.ToJson(request);
