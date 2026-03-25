@@ -281,6 +281,24 @@
 
         <details class="group" open>
           <summary>
+            <span>Detector Configuration</span>
+            <span class="summary-note">Select which detection backend the server uses.</span>
+          </summary>
+          <div class="panel-body">
+            <div class="toolbar">
+              <label for="detector-select" style="font-weight:600">Backend:</label>
+              <select id="detector-select" style="padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:#f8fafc;color:var(--text);font:inherit">
+                <option value="qr">QR Code (qrdet + pyzbar)</option>
+                <option value="apriltag">AprilTag (pupil-apriltags)</option>
+              </select>
+              <button class="btn-primary" id="btn-save-detector" type="button">Save</button>
+            </div>
+            <div class="status-text" id="detector-status"></div>
+          </div>
+        </details>
+
+        <details class="group" open>
+          <summary>
             <span>QR Code Detection</span>
             <span class="summary-note">Upload an image or use the bundled sample.</span>
           </summary>
@@ -393,6 +411,7 @@
   </div>
 
   <script>
+    const DETECTOR_CONFIG_URL = {{ detector_config_url|tojson }};
     const TEST_IMAGE_URL = {{ test_image_url|tojson }};
     const REGISTRATION_SAMPLE_URL = {{ registration_sample_url|tojson }};
     const REGISTRATION_DEPTH_TEXT_URL = {{ registration_depth_text_url|tojson }};
@@ -1275,6 +1294,42 @@
       $('det-depth-placeholder').textContent = error.message;
     });
     updateActionButtons();
+
+    // ── Detector config ──────────────────────────────────────────────────────
+    async function loadDetectorConfig() {
+      try {
+        const resp = await fetch(DETECTOR_CONFIG_URL);
+        if (!resp.ok) throw new Error(`Server returned ${resp.status}`);
+        const data = await resp.json();
+        $('detector-select').value = data.type || 'qr';
+        setSectionStatus('detector-status', `Current: ${data.type}`, 'success');
+      } catch (error) {
+        setSectionStatus('detector-status', `Failed to load detector config: ${error.message}`, 'error');
+      }
+    }
+
+    async function saveDetectorConfig() {
+      const detectorType = $('detector-select').value;
+      $('btn-save-detector').disabled = true;
+      setSectionStatus('detector-status', 'Saving…');
+      try {
+        const resp = await fetch(DETECTOR_CONFIG_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: detectorType }),
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.error || `Server returned ${resp.status}`);
+        setSectionStatus('detector-status', `Saved: ${data.type}. Restart the detection server to apply.`, 'success');
+      } catch (error) {
+        setSectionStatus('detector-status', `Failed to save: ${error.message}`, 'error');
+      } finally {
+        $('btn-save-detector').disabled = false;
+      }
+    }
+
+    $('btn-save-detector').addEventListener('click', () => void saveDetectorConfig());
+    void loadDetectorConfig();
   </script>
 </body>
 </html>

@@ -8,7 +8,22 @@ PROJECT_ROOT = Path(__file__).parent.parent
 ASSETS_DIR = PROJECT_ROOT / "assets"
 REGISTRATION_DIR = ASSETS_DIR / "registration"
 REGISTRATION_COORDS_PATH = REGISTRATION_DIR / "coords.yml"
+CONFIG_PATH = REGISTRATION_DIR / "config.yml"
+_VALID_DETECTOR_TYPES = {"qr", "apriltag"}
 app = Flask(__name__)
+
+
+def _read_config() -> dict:
+    if not CONFIG_PATH.exists():
+        return {}
+    with CONFIG_PATH.open("r", encoding="utf-8") as f:
+        return yaml.safe_load(f) or {}
+
+
+def _write_config(config: dict) -> None:
+    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with CONFIG_PATH.open("w", encoding="utf-8") as f:
+        yaml.safe_dump(config, f, sort_keys=False)
 
 
 def _normalize_corners(payload: object, field_name: str) -> list[list[float]]:
@@ -35,6 +50,7 @@ def index():
         registration_sample_url=url_for("registration_sample"),
         registration_depth_text_url=url_for("registration_depth_text"),
         registration_coords_url=url_for("save_registration_coords"),
+        detector_config_url=url_for("get_detector_config"),
     )
 
 
@@ -93,6 +109,29 @@ def save_registration_coords():
             "depth_corners": depth_corners,
         }
     )
+
+
+@app.route("/detector-config", methods=["GET"])
+def get_detector_config():
+    config = _read_config()
+    detector_type = config.get("detector", {}).get("type", "qr")
+    return jsonify({"type": detector_type})
+
+
+@app.route("/detector-config", methods=["POST"])
+def set_detector_config():
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"error": "Expected a JSON object body"}), 400
+
+    detector_type = payload.get("type")
+    if detector_type not in _VALID_DETECTOR_TYPES:
+        return jsonify({"error": f"Invalid type. Must be one of: {sorted(_VALID_DETECTOR_TYPES)}"}), 400
+
+    config = _read_config()
+    config.setdefault("detector", {})["type"] = detector_type
+    _write_config(config)
+    return jsonify({"type": detector_type})
 
 
 if __name__ == "__main__":
