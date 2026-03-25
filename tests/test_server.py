@@ -1,7 +1,9 @@
 import base64
 import json
 from pathlib import Path
+import subprocess
 import sys
+import textwrap
 
 import cv2
 import numpy as np
@@ -623,3 +625,127 @@ def test_apriltag_result_mapping(monkeypatch, tmp_path):
     assert qr.decoded == "tag36h11:7"
     assert qr.bbox == (10, 20, 90, 80)
     assert qr.confidence == 42.5
+
+
+def test_qr_and_apriltag_bbox_delta_stays_within_epsilon():
+    script = textwrap.dedent(
+        """
+        import json
+        import os
+        import re
+        from pathlib import Path
+
+        import cv2
+        import numpy as np
+        from qrdet import QRDetector
+
+        from marker_to_pos.apriltag_detector import AprilTagDetector
+        from marker_to_pos.detection_geometry import bbox_xyxy_from_detection
+
+
+        def render_qr(data: str = "bbox-test", scale: int = 20) -> np.ndarray:
+            params = cv2.QRCodeEncoder_Params()
+            params.version = 0
+            params.correction_level = cv2.QRCodeEncoder_CORRECT_LEVEL_M
+            params.mode = cv2.QRCodeEncoder_MODE_AUTO
+            params.structure_number = 1
+
+            image = cv2.QRCodeEncoder_create(params).encode(data)
+            image = cv2.copyMakeBorder(image, 1, 1, 1, 1, cv2.BORDER_CONSTANT, value=255)
+            return cv2.resize(image, None, fx=scale, fy=scale, interpolation=cv2.INTER_NEAREST)
+
+
+        def render_apriltag(scale: int = 20, tag_index: int = 0) -> np.ndarray:
+            source = Path("extern/apriltag/tag36h11.c").read_text(encoding="utf-8")
+            codes_match = re.search(r"static uint64_t codedata\\[587\\] = \\{(.*?)\\};", source, re.S)
+            assert codes_match is not None
+
+            code_tokens = re.findall(r"0x([0-9a-fA-F]+)UL", codes_match.group(1))
+            code = int(code_tokens[tag_index], 16)
+            bit_pairs = [
+                (int(index), int(x), int(y))
+                for index, x, y in re.findall(
+                    r"tf->bit_x\\[(\\d+)\\] = (\\d+);\\s*\\n\\s*tf->bit_y\\[\\1\\] = (\\d+);",
+                    source,
+                )
+            ]
+
+            grid = np.zeros((10, 10), dtype=np.uint8)
+            for i in range(9):
+                grid[0, i] = 255
+                grid[i, 9] = 255
+                grid[9, i + 1] = 255
+                grid[i + 1, 0] = 255
+
+            for index, x, y in bit_pairs:
+                if code & (1 << (35 - index)):
+                    grid[y + 1, x + 1] = 255
+
+            return cv2.resize(grid, None, fx=scale, fy=scale, interpolation=cv2.INTER_NEAREST)
+
+
+        def place_code(code_image: np.ndarray, quad: np.ndarray) -> np.ndarray:
+            height, width = code_image.shape[:2]
+            source = np.array(
+                [[0.0, 0.0], [width - 1.0, 0.0], [width - 1.0, height - 1.0], [0.0, height - 1.0]],
+                dtype=np.float32,
+            )
+            transform = cv2.getPerspectiveTransform(source, quad.astype(np.float32))
+
+            canvas = np.full((500, 500), 255, dtype=np.uint8)
+            warped = cv2.warpPerspective(
+                code_image,
+                transform,
+                (500, 500),
+                flags=cv2.INTER_NEAREST,
+                borderValue=255,
+            )
+            mask = cv2.warpPerspective(
+                np.full((height, width), 255, dtype=np.uint8),
+                transform,
+                (500, 500),
+                flags=cv2.INTER_NEAREST,
+                borderValue=0,
+            )
+            canvas[mask > 0] = warped[mask > 0]
+            return cv2.cvtColor(canvas, cv2.COLOR_GRAY2BGR)
+
+
+        target_quad = np.array(
+            [[120.0, 80.0], [360.0, 95.0], [340.0, 330.0], [100.0, 315.0]],
+            dtype=np.float32,
+        )
+        qr_image = place_code(render_qr(), target_quad)
+        apriltag_image = place_code(render_apriltag(), target_quad)
+
+        qr_detection = QRDetector(model_size="s").detect(image=qr_image, is_bgr=True)[0]
+        apriltag_detection = AprilTagDetector().detect(apriltag_image, is_bgr=True)[0]
+
+        payload = {
+            "qr_bbox": bbox_xyxy_from_detection(qr_detection),
+            "apriltag_bbox": bbox_xyxy_from_detection(apriltag_detection),
+        }
+        print(json.dumps(payload))
+        import sys
+        sys.stdout.flush()
+        os._exit(0)
+        """
+    )
+
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=Path(__file__).resolve().parent.parent,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    payload = json.loads(result.stdout.strip())
+    qr_bbox = payload["qr_bbox"]
+    apriltag_bbox = payload["apriltag_bbox"]
+
+    assert len(qr_bbox) == 4
+    assert len(apriltag_bbox) == 4
+    epsilon = 4.0
+    for qr_value, apriltag_value in zip(qr_bbox, apriltag_bbox):
+        assert abs(qr_value - apriltag_value) <= epsilon
