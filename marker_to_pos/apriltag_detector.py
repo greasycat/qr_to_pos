@@ -10,13 +10,16 @@ import cv2
 import numpy as np
 from pupil_apriltags import Detector as _PupilDetector
 
+from .detection_geometry import bbox_xyxy_from_detection
+
 
 class AprilTagDetector:
     """Wraps pupil_apriltags.Detector with a qrdet-compatible detect() interface.
 
     Each dict returned by detect() has the same keys consumed by
     DetectionServer.detect() and QRCodeProcessor.process_frame():
-      - bbox_xyxy: (x1, y1, x2, y2) derived from the four tag corners
+      - quad_xy: (4, 2) float64 points in image space
+      - bbox_xyxy: (x1, y1, x2, y2) derived from quad_xy
       - confidence: decision_margin float
           NOTE: decision_margin is NOT on the [0,1] scale used by qrdet.
           It is a raw float (typically 0-200+) reflecting decode quality.
@@ -48,16 +51,14 @@ class AprilTagDetector:
         results = []
         for r in self._detector.detect(gray):
             corners = r.corners  # (4, 2) float64, CCW order
-            x1 = float(corners[:, 0].min())
-            y1 = float(corners[:, 1].min())
-            x2 = float(corners[:, 0].max())
-            y2 = float(corners[:, 1].max())
             tag_id = int(r.tag_id)
             family = r.tag_family.decode("utf-8", errors="replace")
-            results.append({
-                "bbox_xyxy": (x1, y1, x2, y2),
+            detection = {
+                "quad_xy": corners.copy(),
                 "confidence": float(r.decision_margin),
                 "data": str(tag_id),
                 "_decoded": f"{family}:{tag_id}",
-            })
+            }
+            detection["bbox_xyxy"] = bbox_xyxy_from_detection(detection)
+            results.append(detection)
         return results

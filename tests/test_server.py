@@ -26,6 +26,18 @@ class _DummyDetector:
         ]
 
 
+class _DummyQuadDetector:
+    def detect(self, image, is_bgr=True):
+        return [
+            {
+                "bbox_xyxy": [10, 20, 90, 80],
+                "quad_xy": [[12, 24], [88, 22], [87, 78], [11, 79]],
+                "confidence": 0.97,
+                "data": "dummy",
+            }
+        ]
+
+
 class _DummyDecode:
     def __init__(self, data: bytes) -> None:
         self.data = data
@@ -167,6 +179,24 @@ def test_detect_qrs_includes_registration_projection(monkeypatch, tmp_path):
     assert detection["depth_centroid_pct"] == [54.0, 61.0]
 
 
+def test_detect_prefers_quad_extents_for_bbox(monkeypatch, tmp_path):
+    monkeypatch.setattr("marker_to_pos.server.QRDetector", lambda model_size="s": _DummyQuadDetector())
+    monkeypatch.setattr("marker_to_pos.server.pyzbar_decode", lambda _crop: [_DummyDecode(b"stubbed-qr")])
+
+    server = DetectionServer(
+        host="localhost",
+        port=0,
+        model_size="s",
+        registration_path=tmp_path / "homography.npy",
+    )
+
+    image = np.zeros((100, 100, 3), dtype=np.uint8)
+    qr_codes = server.detect(image)
+
+    assert len(qr_codes) == 1
+    assert qr_codes[0].bbox == (11, 22, 88, 79)
+
+
 def test_detect_request_saves_debug_capture_from_config(monkeypatch, tmp_path):
     monkeypatch.setattr("marker_to_pos.server.QRDetector", lambda model_size="s": _DummyDetector())
     monkeypatch.setattr("marker_to_pos.server.pyzbar_decode", lambda _crop: [_DummyDecode(b"stubbed-qr")])
@@ -279,10 +309,15 @@ def test_compute_depth_centroid_pct_returns_none_outside_registered_bounds(monke
     assert server._compute_depth_centroid_pct(depth_bbox, depth_corners) is None
 
 
-def test_detect_action_does_not_flip_image(monkeypatch):
+def test_detect_action_does_not_flip_image(monkeypatch, tmp_path):
     detector = _SpyDetector()
     monkeypatch.setattr("marker_to_pos.server.QRDetector", lambda model_size="s": detector)
-    server = DetectionServer(host="localhost", port=0, model_size="s")
+    server = DetectionServer(
+        host="localhost",
+        port=0,
+        model_size="s",
+        registration_path=tmp_path / "homography.npy",
+    )
 
     image = np.zeros((140, 140, 3), dtype=np.uint8)
     image[:, :, 0] = 10
@@ -303,10 +338,15 @@ def test_detect_action_does_not_flip_image(monkeypatch):
     np.testing.assert_array_equal(detector.images[0], image)
 
 
-def test_detect_unity_action_flips_image_horizontally(monkeypatch):
+def test_detect_unity_action_flips_image_horizontally(monkeypatch, tmp_path):
     detector = _SpyDetector()
     monkeypatch.setattr("marker_to_pos.server.QRDetector", lambda model_size="s": detector)
-    server = DetectionServer(host="localhost", port=0, model_size="s")
+    server = DetectionServer(
+        host="localhost",
+        port=0,
+        model_size="s",
+        registration_path=tmp_path / "homography.npy",
+    )
 
     image = np.zeros((140, 140, 3), dtype=np.uint8)
     image[:, :, 0] = 10

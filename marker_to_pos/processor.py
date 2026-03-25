@@ -7,6 +7,7 @@ import numpy as np
 from qrdet import QRDetector
 
 from .camera import Camera, Frame
+from .detection_geometry import bbox_xyxy_from_detection
 
 
 @dataclass
@@ -122,7 +123,7 @@ class QRCodeProcessor:
             qr_codes = []
             
             for detection in detections:
-                x1, y1, x2, y2 = detection['bbox_xyxy']  # type: ignore
+                x1, y1, x2, y2 = bbox_xyxy_from_detection(detection)
                 confidence = detection.get('confidence', 1.0)
                 data = detection.get('data', '')
                 

@@ -17,6 +17,7 @@ from pyzbar.pyzbar import decode as pyzbar_decode
 from qrdet import QRDetector
 from websockets.asyncio.server import serve
 
+from .detection_geometry import bbox_xyxy_from_detection
 from .processor import QRCode
 from .registration import (
     compute_homography,
@@ -100,7 +101,7 @@ class DetectionServer:
 
         qr_codes = []
         for detection in detections:
-            x1, y1, x2, y2 = detection["bbox_xyxy"]  # type: ignore
+            x1, y1, x2, y2 = bbox_xyxy_from_detection(detection)
             x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
 
             if "_decoded" in detection:
