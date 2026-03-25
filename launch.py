@@ -26,7 +26,7 @@ ROOT = Path(__file__).parent
 
 SERVICES = [
     {
-        "name": "QR WebSocket Server",
+        "name": "AprilTag WebSocket Server",
         "cmd": ["uv", "run", "python", "-m", "marker_to_pos.server"],
         "hint": "ws://localhost:8765",
     },

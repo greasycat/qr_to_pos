@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>QR Detection And Registration</title>
+  <title>AprilTag Detection And Registration</title>
   <style>
     :root {
       --bg: #eef2f6;
@@ -268,8 +268,8 @@
     <section class="panel">
       <div class="panel-body">
         <div>
-          <h1>QR Detection And Registration</h1>
-          <p class="subtle">Use one WebSocket session for QR detection, corner updates, and homography updates.</p>
+          <h1>AprilTag Detection And Registration</h1>
+          <p class="subtle">Use one WebSocket session for AprilTag detection, corner updates, and homography updates.</p>
         </div>
 
         <div class="connection-row">
@@ -282,16 +282,12 @@
         <details class="group" open>
           <summary>
             <span>Detector Configuration</span>
-            <span class="summary-note">Select which detection backend the server uses.</span>
+            <span class="summary-note">This build is fixed to AprilTag detection.</span>
           </summary>
           <div class="panel-body">
             <div class="toolbar">
-              <label for="detector-select" style="font-weight:600">Backend:</label>
-              <select id="detector-select" style="padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:#f8fafc;color:var(--text);font:inherit">
-                <option value="qr">QR Code (qrdet + pyzbar)</option>
-                <option value="apriltag">AprilTag (pupil-apriltags)</option>
-              </select>
-              <button class="btn-primary" id="btn-save-detector" type="button">Save</button>
+              <span style="font-weight:600">Backend:</span>
+              <span class="badge" style="background:#dcfce7;color:#166534;border-color:#bbf7d0">AprilTag</span>
             </div>
             <div class="status-text" id="detector-status"></div>
           </div>
@@ -299,7 +295,7 @@
 
         <details class="group" open>
           <summary>
-            <span>QR Code Detection</span>
+            <span>AprilTag Detection</span>
             <span class="summary-note">Upload an image or use the bundled sample.</span>
           </summary>
           <div class="panel-body">
@@ -343,7 +339,7 @@
                   <pre class="matrix" id="det-matrix">No homography queried yet.</pre>
                 </div>
                 <div class="surface">
-                  <h3>Decoded QR Codes</h3>
+                  <h3>Detected Markers</h3>
                   <div class="placeholder" id="det-table-placeholder">No detections yet.</div>
                   <table id="det-table" style="display:none">
                     <thead>
@@ -666,7 +662,7 @@
 
       detecting = true;
       updateActionButtons();
-      setSectionStatus('det-status', 'Running QR detection...');
+      setSectionStatus('det-status', 'Running AprilTag detection...');
 
       try {
         const image = await imageToBase64(detectionImage);
@@ -691,7 +687,7 @@
       detections.forEach((det) => {
         if (!det.bbox) return;
         const [x1, y1, x2, y2] = det.bbox;
-        const label = det.decoded || (det.confidence != null ? `conf:${det.confidence.toFixed(2)}` : 'QR');
+        const label = det.decoded || (det.confidence != null ? `conf:${det.confidence.toFixed(2)}` : 'Marker');
         const w = x2 - x1;
         const h = y2 - y1;
 
@@ -751,7 +747,7 @@
         ctx.fill();
         ctx.stroke();
 
-        const label = det.decoded || `QR ${index + 1}`;
+        const label = det.decoded || `Marker ${index + 1}`;
         ctx.fillStyle = '#dbeafe';
         ctx.fillText(label, points[0][0] + 6, Math.max(18, points[0][1] - 6));
       });
@@ -767,7 +763,7 @@
       tbody.innerHTML = '';
 
       if (!detections.length) {
-        placeholder.textContent = 'No QR codes detected.';
+        placeholder.textContent = 'No markers detected.';
         placeholder.style.display = 'flex';
         table.style.display = 'none';
         return;
@@ -1301,34 +1297,11 @@
         const resp = await fetch(DETECTOR_CONFIG_URL);
         if (!resp.ok) throw new Error(`Server returned ${resp.status}`);
         const data = await resp.json();
-        $('detector-select').value = data.type || 'qr';
         setSectionStatus('detector-status', `Current: ${data.type}`, 'success');
       } catch (error) {
         setSectionStatus('detector-status', `Failed to load detector config: ${error.message}`, 'error');
       }
     }
-
-    async function saveDetectorConfig() {
-      const detectorType = $('detector-select').value;
-      $('btn-save-detector').disabled = true;
-      setSectionStatus('detector-status', 'Saving…');
-      try {
-        const resp = await fetch(DETECTOR_CONFIG_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ type: detectorType }),
-        });
-        const data = await resp.json();
-        if (!resp.ok) throw new Error(data.error || `Server returned ${resp.status}`);
-        setSectionStatus('detector-status', `Saved: ${data.type}. Restart the detection server to apply.`, 'success');
-      } catch (error) {
-        setSectionStatus('detector-status', `Failed to save: ${error.message}`, 'error');
-      } finally {
-        $('btn-save-detector').disabled = false;
-      }
-    }
-
-    $('btn-save-detector').addEventListener('click', () => void saveDetectorConfig());
     void loadDetectorConfig();
   </script>
 </body>

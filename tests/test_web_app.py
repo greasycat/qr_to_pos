@@ -48,3 +48,49 @@ def test_save_registration_coords_rejects_invalid_payload(monkeypatch, tmp_path)
     assert response.get_json() == {
         "error": "Field 'color_corners' must be a list of 4 [x, y] points"
     }
+
+
+def test_get_detector_config_is_fixed_to_apriltag():
+    client = app.test_client()
+
+    response = client.get("/detector-config")
+
+    assert response.status_code == 200
+    assert response.get_json() == {"type": "apriltag"}
+
+
+def test_set_detector_config_accepts_only_apriltag(monkeypatch, tmp_path):
+    config_path = tmp_path / "config.yml"
+    monkeypatch.setattr("web.app.CONFIG_PATH", config_path)
+
+    client = app.test_client()
+    response = client.post("/detector-config", json={"type": "apriltag"})
+
+    assert response.status_code == 200
+    assert response.get_json() == {"type": "apriltag"}
+    saved = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    assert saved == {"detector": {"type": "apriltag"}}
+
+
+def test_set_detector_config_rejects_qr(monkeypatch, tmp_path):
+    monkeypatch.setattr("web.app.CONFIG_PATH", tmp_path / "config.yml")
+
+    client = app.test_client()
+    response = client.post("/detector-config", json={"type": "qr"})
+
+    assert response.status_code == 400
+    assert response.get_json() == {
+        "error": "Invalid type. Must be one of: ['apriltag']"
+    }
+
+
+def test_test_image_serves_apriltag_asset(monkeypatch, tmp_path):
+    image_path = tmp_path / "fake_background_apriltag.png"
+    image_path.write_bytes(b"apriltag-image")
+    monkeypatch.setattr("web.app.TEST_IMAGE_PATH", image_path)
+
+    client = app.test_client()
+    response = client.get("/test-image")
+
+    assert response.status_code == 200
+    assert response.data == b"apriltag-image"

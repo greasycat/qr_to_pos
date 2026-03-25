@@ -329,7 +329,7 @@ public class QRDetectionRenderer : MonoBehaviour
         if (!string.IsNullOrEmpty(detection.data))
             return detection.data;
 
-        return "QR";
+        return "Marker";
     }
 
     static string GetDepthCentroidPercentageLabel(QRDetection detection)

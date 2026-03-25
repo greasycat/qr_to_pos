@@ -14,16 +14,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from marker_to_pos.server import DetectionServer
 
-IMAGE_PATH = Path(__file__).resolve().parent.parent / "assets" / "fake_background_multiple_qr.png"
+IMAGE_PATH = Path(__file__).resolve().parent.parent / "assets" / "fake_background_apriltag.png"
 
 
-class _DummyDetector:
+class _DummyAprilTagDetector:
     def detect(self, image, is_bgr=True):
         return [
             {
                 "bbox_xyxy": [12, 18, 96, 104],
-                "confidence": 0.97,
-                "data": "dummy",
+                "confidence": 42.5,
+                "data": "7",
+                "_decoded": "tag36h11:7",
             }
         ]
 
@@ -34,15 +35,11 @@ class _DummyQuadDetector:
             {
                 "bbox_xyxy": [10, 20, 90, 80],
                 "quad_xy": [[12, 24], [88, 22], [87, 78], [11, 79]],
-                "confidence": 0.97,
-                "data": "dummy",
+                "confidence": 42.5,
+                "data": "7",
+                "_decoded": "tag36h11:7",
             }
         ]
-
-
-class _DummyDecode:
-    def __init__(self, data: bytes) -> None:
-        self.data = data
 
 
 class _SpyDetector:
@@ -82,8 +79,7 @@ def _write_server_config(
 
 @pytest.fixture()
 def stubbed_server(monkeypatch, tmp_path):
-    monkeypatch.setattr("marker_to_pos.server.QRDetector", lambda model_size="s": _DummyDetector())
-    monkeypatch.setattr("marker_to_pos.server.pyzbar_decode", lambda _crop: [_DummyDecode(b"stubbed-qr")])
+    monkeypatch.setattr("marker_to_pos.server.AprilTagDetector", lambda: _DummyAprilTagDetector())
     return DetectionServer(
         host="localhost",
         port=0,
@@ -92,7 +88,7 @@ def stubbed_server(monkeypatch, tmp_path):
     )
 
 
-def test_detect_qrs_from_image(stubbed_server):
+def test_detect_apriltags_from_image(stubbed_server):
     image_bytes = IMAGE_PATH.read_bytes()
     image = stubbed_server.decode_image(image_bytes)
     result = stubbed_server.detect_response(image)
@@ -100,7 +96,7 @@ def test_detect_qrs_from_image(stubbed_server):
     # Should not be an error response
     assert "error" not in result
 
-    # Should have detected QR codes
+    # Should have detected AprilTags
     assert result["count"] > 0
     assert len(result["detections"]) == result["count"]
     assert isinstance(result["processing_time"], float)
@@ -120,16 +116,14 @@ def test_detect_qrs_from_image(stubbed_server):
         assert det["depth_centroid"] is None
         assert det["depth_centroid_pct"] is None
 
-        # pyzbar should have decoded at least some of them
     decoded_values = [d["decoded"] for d in result["detections"] if d["decoded"]]
-    assert len(decoded_values) > 0, "pyzbar should decode at least one QR code"
+    assert decoded_values == ["tag36h11:7"]
 
     print(decoded_values)
 
 
-def test_detect_qrs_includes_registration_projection(monkeypatch, tmp_path):
-    monkeypatch.setattr("marker_to_pos.server.QRDetector", lambda model_size="s": _DummyDetector())
-    monkeypatch.setattr("marker_to_pos.server.pyzbar_decode", lambda _crop: [_DummyDecode(b"stubbed-qr")])
+def test_detect_apriltags_includes_registration_projection(monkeypatch, tmp_path):
+    monkeypatch.setattr("marker_to_pos.server.AprilTagDetector", lambda: _DummyAprilTagDetector())
 
     registration_path = tmp_path / "homography.npy"
     coords_path = tmp_path / "coords.yml"
@@ -182,8 +176,7 @@ def test_detect_qrs_includes_registration_projection(monkeypatch, tmp_path):
 
 
 def test_detect_prefers_quad_extents_for_bbox(monkeypatch, tmp_path):
-    monkeypatch.setattr("marker_to_pos.server.QRDetector", lambda model_size="s": _DummyQuadDetector())
-    monkeypatch.setattr("marker_to_pos.server.pyzbar_decode", lambda _crop: [_DummyDecode(b"stubbed-qr")])
+    monkeypatch.setattr("marker_to_pos.server.AprilTagDetector", lambda: _DummyQuadDetector())
 
     server = DetectionServer(
         host="localhost",
@@ -193,15 +186,14 @@ def test_detect_prefers_quad_extents_for_bbox(monkeypatch, tmp_path):
     )
 
     image = np.zeros((100, 100, 3), dtype=np.uint8)
-    qr_codes = server.detect(image)
+    detections = server.detect(image)
 
-    assert len(qr_codes) == 1
-    assert qr_codes[0].bbox == (11, 22, 88, 79)
+    assert len(detections) == 1
+    assert detections[0].bbox == (11, 22, 88, 79)
 
 
 def test_detect_request_saves_debug_capture_from_config(monkeypatch, tmp_path):
-    monkeypatch.setattr("marker_to_pos.server.QRDetector", lambda model_size="s": _DummyDetector())
-    monkeypatch.setattr("marker_to_pos.server.pyzbar_decode", lambda _crop: [_DummyDecode(b"stubbed-qr")])
+    monkeypatch.setattr("marker_to_pos.server.AprilTagDetector", lambda: _DummyAprilTagDetector())
 
     registration_path = tmp_path / "homography.npy"
     config_path = tmp_path / "config.yml"
@@ -234,7 +226,7 @@ def test_detect_request_saves_debug_capture_from_config(monkeypatch, tmp_path):
 
     saved_response = json.loads((saved_capture_dir / "response.json").read_text(encoding="utf-8"))
     assert saved_response["count"] == response["count"]
-    assert saved_response["detections"][0]["decoded"] == "stubbed-qr"
+    assert saved_response["detections"][0]["decoded"] == "tag36h11:7"
 
     metadata = yaml.safe_load((saved_capture_dir / "metadata.yml").read_text(encoding="utf-8"))
     assert metadata["request_source"] == "json"
@@ -250,8 +242,7 @@ def test_detect_request_saves_debug_capture_from_config(monkeypatch, tmp_path):
 
 
 def test_detect_request_prunes_debug_captures_to_configured_limit(monkeypatch, tmp_path):
-    monkeypatch.setattr("marker_to_pos.server.QRDetector", lambda model_size="s": _DummyDetector())
-    monkeypatch.setattr("marker_to_pos.server.pyzbar_decode", lambda _crop: [_DummyDecode(b"stubbed-qr")])
+    monkeypatch.setattr("marker_to_pos.server.AprilTagDetector", lambda: _DummyAprilTagDetector())
 
     registration_path = tmp_path / "homography.npy"
     config_path = tmp_path / "config.yml"
@@ -286,7 +277,7 @@ def test_detect_request_prunes_debug_captures_to_configured_limit(monkeypatch, t
 
 
 def test_compute_depth_centroid_pct_returns_none_outside_registered_bounds(monkeypatch):
-    monkeypatch.setattr("marker_to_pos.server.QRDetector", lambda model_size="s": _DummyDetector())
+    monkeypatch.setattr("marker_to_pos.server.AprilTagDetector", lambda: _DummyAprilTagDetector())
     server = DetectionServer(host="localhost", port=0, model_size="s")
 
     depth_bbox = np.array(
@@ -313,7 +304,7 @@ def test_compute_depth_centroid_pct_returns_none_outside_registered_bounds(monke
 
 def test_detect_action_does_not_flip_image(monkeypatch, tmp_path):
     detector = _SpyDetector()
-    monkeypatch.setattr("marker_to_pos.server.QRDetector", lambda model_size="s": detector)
+    monkeypatch.setattr("marker_to_pos.server.AprilTagDetector", lambda: detector)
     server = DetectionServer(
         host="localhost",
         port=0,
@@ -342,7 +333,7 @@ def test_detect_action_does_not_flip_image(monkeypatch, tmp_path):
 
 def test_detect_unity_action_flips_image_horizontally(monkeypatch, tmp_path):
     detector = _SpyDetector()
-    monkeypatch.setattr("marker_to_pos.server.QRDetector", lambda model_size="s": detector)
+    monkeypatch.setattr("marker_to_pos.server.AprilTagDetector", lambda: detector)
     server = DetectionServer(
         host="localhost",
         port=0,
@@ -371,7 +362,7 @@ def test_detect_unity_action_flips_image_horizontally(monkeypatch, tmp_path):
 
 def test_detect_unity_action_uses_yaml_image_action_pipeline(monkeypatch, tmp_path):
     detector = _SpyDetector()
-    monkeypatch.setattr("marker_to_pos.server.QRDetector", lambda model_size="s": detector)
+    monkeypatch.setattr("marker_to_pos.server.AprilTagDetector", lambda: detector)
 
     registration_path = tmp_path / "homography.npy"
     config_path = tmp_path / "config.yml"
@@ -409,7 +400,7 @@ def test_detect_unity_action_uses_yaml_image_action_pipeline(monkeypatch, tmp_pa
 
 
 def test_invalid_unity_image_action_in_yaml_raises(monkeypatch, tmp_path):
-    monkeypatch.setattr("marker_to_pos.server.QRDetector", lambda model_size="s": _SpyDetector())
+    monkeypatch.setattr("marker_to_pos.server.AprilTagDetector", lambda: _SpyDetector())
 
     registration_path = tmp_path / "homography.npy"
     config_path = tmp_path / "config.yml"
@@ -428,8 +419,7 @@ def test_invalid_unity_image_action_in_yaml_raises(monkeypatch, tmp_path):
 
 
 def test_detect_unity_request_saves_unity_metadata(monkeypatch, tmp_path):
-    monkeypatch.setattr("marker_to_pos.server.QRDetector", lambda model_size="s": _DummyDetector())
-    monkeypatch.setattr("marker_to_pos.server.pyzbar_decode", lambda _crop: [_DummyDecode(b"stubbed-qr")])
+    monkeypatch.setattr("marker_to_pos.server.AprilTagDetector", lambda: _DummyAprilTagDetector())
 
     registration_path = tmp_path / "homography.npy"
     config_path = tmp_path / "config.yml"
@@ -480,7 +470,7 @@ def test_detect_unity_request_saves_unity_metadata(monkeypatch, tmp_path):
 
 
 def test_update_corners_action(monkeypatch):
-    monkeypatch.setattr("marker_to_pos.server.QRDetector", lambda model_size="s": _DummyDetector())
+    monkeypatch.setattr("marker_to_pos.server.AprilTagDetector", lambda: _DummyAprilTagDetector())
     server = DetectionServer(host="localhost", port=0, model_size="s")
 
     monkeypatch.setattr(
@@ -512,7 +502,7 @@ def test_update_corners_action(monkeypatch):
 
 
 def test_update_registration_action(monkeypatch, tmp_path):
-    monkeypatch.setattr("marker_to_pos.server.QRDetector", lambda model_size="s": _DummyDetector())
+    monkeypatch.setattr("marker_to_pos.server.AprilTagDetector", lambda: _DummyAprilTagDetector())
     server = DetectionServer(
         host="localhost",
         port=0,
@@ -546,25 +536,11 @@ def test_update_registration_action(monkeypatch, tmp_path):
 # ── AprilTag detector tests ──────────────────────────────────────────────────
 
 
-class _DummyAprilTagDetector:
-    """Minimal AprilTagDetector stand-in for tests."""
-
-    def detect(self, image, *, is_bgr=True):
-        return [
-            {
-                "bbox_xyxy": (10.0, 20.0, 90.0, 80.0),
-                "confidence": 42.5,
-                "data": "7",
-                "_decoded": "tag36h11:7",
-            }
-        ]
-
-
 def test_config_selects_apriltag_detector(monkeypatch, tmp_path):
     sentinel = _DummyAprilTagDetector()
     monkeypatch.setattr(
-        "marker_to_pos.apriltag_detector.AprilTagDetector",
-        lambda **_kwargs: sentinel,
+        "marker_to_pos.server.AprilTagDetector",
+        lambda: sentinel,
     )
 
     registration_path = tmp_path / "homography.npy"
@@ -576,39 +552,26 @@ def test_config_selects_apriltag_detector(monkeypatch, tmp_path):
     assert server.detector is sentinel
 
 
-def test_apriltag_result_skips_pyzbar(monkeypatch, tmp_path):
-    """When a detection dict contains _decoded, pyzbar must not be called."""
+def test_invalid_detector_type_in_config_raises(monkeypatch, tmp_path):
     monkeypatch.setattr(
-        "marker_to_pos.apriltag_detector.AprilTagDetector",
-        lambda **_kwargs: _DummyAprilTagDetector(),
-    )
-
-    pyzbar_called = []
-    monkeypatch.setattr(
-        "marker_to_pos.server.pyzbar_decode",
-        lambda _crop: pyzbar_called.append(True) or [],
+        "marker_to_pos.server.AprilTagDetector",
+        lambda: _DummyAprilTagDetector(),
     )
 
     registration_path = tmp_path / "homography.npy"
     config_path = tmp_path / "config.yml"
-    _write_server_config(config_path, detector_type="apriltag")
+    _write_server_config(config_path, detector_type="qr")
 
-    server = DetectionServer(host="localhost", port=0, registration_path=registration_path)
-
-    image = np.zeros((100, 100, 3), dtype=np.uint8)
-    qr_codes = server.detect(image)
-
-    assert not pyzbar_called, "pyzbar_decode should not be called for AprilTag detections"
-    assert len(qr_codes) == 1
+    with pytest.raises(ValueError, match="This build only supports 'apriltag'"):
+        DetectionServer(host="localhost", port=0, registration_path=registration_path)
 
 
 def test_apriltag_result_mapping(monkeypatch, tmp_path):
     """AprilTag detection is correctly mapped to QRCode fields."""
     monkeypatch.setattr(
-        "marker_to_pos.apriltag_detector.AprilTagDetector",
-        lambda **_kwargs: _DummyAprilTagDetector(),
+        "marker_to_pos.server.AprilTagDetector",
+        lambda: _DummyAprilTagDetector(),
     )
-    monkeypatch.setattr("marker_to_pos.server.pyzbar_decode", lambda _crop: [])
 
     registration_path = tmp_path / "homography.npy"
     config_path = tmp_path / "config.yml"
@@ -617,17 +580,17 @@ def test_apriltag_result_mapping(monkeypatch, tmp_path):
     server = DetectionServer(host="localhost", port=0, registration_path=registration_path)
 
     image = np.zeros((100, 100, 3), dtype=np.uint8)
-    qr_codes = server.detect(image)
+    detections = server.detect(image)
 
-    assert len(qr_codes) == 1
-    qr = qr_codes[0]
-    assert qr.data == "7"
-    assert qr.decoded == "tag36h11:7"
-    assert qr.bbox == (10, 20, 90, 80)
-    assert qr.confidence == 42.5
+    assert len(detections) == 1
+    detection = detections[0]
+    assert detection.data == "7"
+    assert detection.decoded == "tag36h11:7"
+    assert detection.bbox == (12, 18, 96, 104)
+    assert detection.confidence == 42.5
 
 
-def test_qr_and_apriltag_bbox_delta_stays_within_epsilon():
+def test_apriltag_bbox_matches_rendered_quad_within_epsilon():
     script = textwrap.dedent(
         """
         import json
@@ -637,22 +600,9 @@ def test_qr_and_apriltag_bbox_delta_stays_within_epsilon():
 
         import cv2
         import numpy as np
-        from qrdet import QRDetector
 
         from marker_to_pos.apriltag_detector import AprilTagDetector
         from marker_to_pos.detection_geometry import bbox_xyxy_from_detection
-
-
-        def render_qr(data: str = "bbox-test", scale: int = 20) -> np.ndarray:
-            params = cv2.QRCodeEncoder_Params()
-            params.version = 0
-            params.correction_level = cv2.QRCodeEncoder_CORRECT_LEVEL_M
-            params.mode = cv2.QRCodeEncoder_MODE_AUTO
-            params.structure_number = 1
-
-            image = cv2.QRCodeEncoder_create(params).encode(data)
-            image = cv2.copyMakeBorder(image, 1, 1, 1, 1, cv2.BORDER_CONSTANT, value=255)
-            return cv2.resize(image, None, fx=scale, fy=scale, interpolation=cv2.INTER_NEAREST)
 
 
         def render_apriltag(scale: int = 20, tag_index: int = 0) -> np.ndarray:
@@ -715,14 +665,11 @@ def test_qr_and_apriltag_bbox_delta_stays_within_epsilon():
             [[120.0, 80.0], [360.0, 95.0], [340.0, 330.0], [100.0, 315.0]],
             dtype=np.float32,
         )
-        qr_image = place_code(render_qr(), target_quad)
         apriltag_image = place_code(render_apriltag(), target_quad)
 
-        qr_detection = QRDetector(model_size="s").detect(image=qr_image, is_bgr=True)[0]
         apriltag_detection = AprilTagDetector().detect(apriltag_image, is_bgr=True)[0]
 
         payload = {
-            "qr_bbox": bbox_xyxy_from_detection(qr_detection),
             "apriltag_bbox": bbox_xyxy_from_detection(apriltag_detection),
         }
         print(json.dumps(payload))
@@ -741,11 +688,16 @@ def test_qr_and_apriltag_bbox_delta_stays_within_epsilon():
     )
 
     payload = json.loads(result.stdout.strip())
-    qr_bbox = payload["qr_bbox"]
     apriltag_bbox = payload["apriltag_bbox"]
+    expected_bbox = [
+        126.05014801025393,
+        104.72433471679682,
+        334.95666503906244,
+        306.2505187988281,
+    ]
 
-    assert len(qr_bbox) == 4
     assert len(apriltag_bbox) == 4
-    epsilon = 4.0
-    for qr_value, apriltag_value in zip(qr_bbox, apriltag_bbox):
-        assert abs(qr_value - apriltag_value) <= epsilon
+    assert len(expected_bbox) == 4
+    epsilon = 0.75
+    for apriltag_value, expected_value in zip(apriltag_bbox, expected_bbox):
+        assert abs(apriltag_value - expected_value) <= epsilon

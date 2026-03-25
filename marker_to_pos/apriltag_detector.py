@@ -1,4 +1,4 @@
-"""Thin wrapper around pupil_apriltags.Detector with a qrdet-compatible interface.
+"""Thin wrapper around pupil_apriltags.Detector with the project's shared interface.
 
 The upstream C source for the AprilTag library is tracked as a git submodule at
 extern/apriltag. At runtime, pupil-apriltags ships its own pre-compiled copy of
@@ -14,18 +14,17 @@ from .detection_geometry import bbox_xyxy_from_detection
 
 
 class AprilTagDetector:
-    """Wraps pupil_apriltags.Detector with a qrdet-compatible detect() interface.
+    """Wraps pupil_apriltags.Detector with the project's shared detect() interface.
 
     Each dict returned by detect() has the same keys consumed by
     DetectionServer.detect() and QRCodeProcessor.process_frame():
       - quad_xy: (4, 2) float64 points in image space
       - bbox_xyxy: (x1, y1, x2, y2) derived from quad_xy
       - confidence: decision_margin float
-          NOTE: decision_margin is NOT on the [0,1] scale used by qrdet.
-          It is a raw float (typically 0-200+) reflecting decode quality.
-          Code that thresholds on confidence values should account for this.
+          NOTE: decision_margin is a raw float (typically 0-200+)
+          reflecting decode quality.
       - data: str(tag_id) — used as QRCode.data in the wire protocol
-      - _decoded: "family:tag_id" — injected so server.detect() can skip pyzbar
+      - _decoded: "family:tag_id" — injected for downstream display/identity
     """
 
     def __init__(

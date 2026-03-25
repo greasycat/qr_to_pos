@@ -216,9 +216,9 @@ public sealed class QRMarkerManager
         if (string.IsNullOrEmpty(label))
             label = detection.data;
         if (string.IsNullOrEmpty(label))
-            label = "QR";
+            label = "Marker";
 
-        return string.Format("QRMarker_{0}_{1}", index, label);
+        return string.Format("Marker_{0}_{1}", index, label);
     }
 
     static Vector3 GetSpawnPosition(Vector3 targetPosition, float fallSpawnHeight, bool enableFall)

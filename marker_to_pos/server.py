@@ -13,10 +13,9 @@ from typing import Any
 import cv2
 import numpy as np
 import yaml
-from pyzbar.pyzbar import decode as pyzbar_decode
-from qrdet import QRDetector
 from websockets.asyncio.server import serve
 
+from .apriltag_detector import AprilTagDetector
 from .detection_geometry import bbox_xyxy_from_detection
 from .processor import QRCode
 from .registration import (
@@ -40,7 +39,7 @@ _DEFAULT_UNITY_IMAGE_ACTIONS = ("flip_h",)
 
 
 class DetectionServer:
-    """WebSocket server that receives images and returns QR detection results."""
+    """WebSocket server that receives images and returns AprilTag detection results."""
 
     def __init__(
         self,
@@ -62,12 +61,8 @@ class DetectionServer:
         self.registration_coords_path = Path(registration_coords_path)
         config = self._load_server_config()
         detector_config = config.get("detector", {}) if isinstance(config.get("detector"), dict) else {}
-        detector_type = str(detector_config.get("type", "qr")).strip().lower()
-        if detector_type == "apriltag":
-            from .apriltag_detector import AprilTagDetector
-            self.detector = AprilTagDetector()
-        else:
-            self.detector = QRDetector(model_size=model_size)
+        detector_type = self._coerce_detector_type(detector_config.get("type"))
+        self.detector = AprilTagDetector()
         debug_config = config.get("ws_debug", {}) if isinstance(config.get("ws_debug"), dict) else {}
         processing_config = (
             config.get("ws_processing", {}) if isinstance(config.get("ws_processing"), dict) else {}
@@ -91,31 +86,18 @@ class DetectionServer:
             default=_DEFAULT_UNITY_IMAGE_ACTIONS,
         )
         self._capture_sequence = 0
+        self.detector_type = detector_type
 
     def detect(self, image: np.ndarray) -> list[QRCode]:
         detections = self.detector.detect(image=image, is_bgr=True)
         if not detections:
             return []
 
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-
-        qr_codes = []
+        qr_codes: list[QRCode] = []
         for detection in detections:
             x1, y1, x2, y2 = bbox_xyxy_from_detection(detection)
             x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
-
-            if "_decoded" in detection:
-                # AprilTag result: identity already decoded, skip pyzbar
-                decoded = detection["_decoded"]
-            else:
-                # QR result: decode content from the cropped region using pyzbar
-                pad = 10
-                h, w = gray.shape
-                crop = gray[max(0, y1 - pad) : min(h, y2 + pad), max(0, x1 - pad) : min(w, x2 + pad)]
-                decoded = None
-                results = pyzbar_decode(crop)
-                if results:
-                    decoded = results[0].data.decode("utf-8", errors="replace")
+            decoded = detection.get("_decoded") or detection.get("decoded")
 
             qr_codes.append(
                 QRCode(
@@ -205,6 +187,20 @@ class DetectionServer:
         if isinstance(value, str):
             return value.strip().lower() in {"1", "true", "yes", "on"}
         return bool(value)
+
+    def _coerce_detector_type(self, value: Any) -> str:
+        if value is None:
+            return "apriltag"
+        if not isinstance(value, str):
+            raise ValueError("detector.type must be a string when configured")
+
+        detector_type = value.strip().lower()
+        if detector_type == "apriltag":
+            return detector_type
+
+        raise ValueError(
+            f"Unsupported detector type: {detector_type}. This build only supports 'apriltag'."
+        )
 
     def _coerce_positive_int(self, value: Any, default: int) -> int:
         try:
@@ -393,7 +389,7 @@ class DetectionServer:
             self._prune_debug_captures()
             return capture_dir
         except Exception as exc:
-            print(f"QRDetectionRenderer: Failed to save debug capture: {exc}")
+            print(f"DetectionServer: Failed to save debug capture: {exc}")
             return None
 
     def _save_processed_detection_image(
@@ -623,15 +619,9 @@ class DetectionServer:
 def main() -> None:
     import argparse
 
-    parser = argparse.ArgumentParser(description="QR detection WebSocket server")
+    parser = argparse.ArgumentParser(description="AprilTag detection WebSocket server")
     parser.add_argument("--host", default="localhost")
     parser.add_argument("--port", type=int, default=8765)
-    parser.add_argument(
-        "--model-size",
-        default="s",
-        choices=["n", "s", "m", "l"],
-        help="YOLO model size for QR detection",
-    )
     parser.add_argument(
         "--save-decoding-images",
         action="store_true",
@@ -643,7 +633,6 @@ def main() -> None:
     server = DetectionServer(
         host=args.host,
         port=args.port,
-        model_size=args.model_size,
         save_decoding_images=args.save_decoding_images,
     )
     if server.save_decoding_images:

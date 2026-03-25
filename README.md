@@ -1,6 +1,6 @@
 # marker_to_pos Launch and Server Notes
 
-This file documents the current startup flow implemented in `launch.py`, the QR WebSocket server in `marker_to_pos/server.py`, and the Flask backend in `web/app.py`.
+This file documents the current startup flow implemented in `launch.py`, the AprilTag WebSocket server in `marker_to_pos/server.py`, and the Flask backend in `web/app.py`.
 
 ## Launcher
 
@@ -12,7 +12,7 @@ uv run python launch.py
 
 `launch.py` does not accept CLI arguments. It always starts these two services:
 
-1. `QR WebSocket Server`
+1. `AprilTag WebSocket Server`
    Command:
    ```bash
    uv run python -m marker_to_pos.server
@@ -41,7 +41,7 @@ Launcher key bindings:
 Start directly with:
 
 ```bash
-uv run python -m marker_to_pos.server [--host HOST] [--port PORT] [--model-size {n,s,m,l}] [--save-decoding-images]
+uv run python -m marker_to_pos.server [--host HOST] [--port PORT] [--save-decoding-images]
 ```
 
 Implemented CLI options:
@@ -50,7 +50,6 @@ Implemented CLI options:
 | --- | --- | --- |
 | `--host` | `localhost` | Bind address for the WebSocket server |
 | `--port` | `8765` | Listening port |
-| `--model-size` | `s` | qrdet YOLO model size: `n`, `s`, `m`, or `l` |
 | `--save-decoding-images` | `off` | Save each detect request image plus response metadata to the temp debug folder |
 
 Internal defaults that are not exposed as CLI flags:
@@ -72,7 +71,7 @@ Supported WebSocket request styles:
   Used by the calibration/manual web tooling. No backend image flip is applied.
 - `detect_unity`
   Required field: `image` (base64-encoded image bytes)
-  Used by the Unity live client. The backend applies the configured Unity image-action pipeline before QR detection.
+  Used by the Unity live client. The backend applies the configured Unity image-action pipeline before AprilTag detection.
 - `update_corners`
   Required fields: `color_image` (base64 image), `depth_text` (tab-separated depth text)
 - `update_registration`
@@ -83,6 +82,7 @@ Response behavior:
 
 - `detect` returns `action`, `homography`, `detections`, `count`, and `processing_time`
 - Each detection may include `bbox`, `confidence`, `decoded`, `homography`, `depth_bbox`, `depth_centroid`, and `depth_centroid_pct`
+- The detector backend is fixed to `apriltag`; QR detection is no longer supported
 - Invalid JSON or missing fields return JSON errors
 
 Debug capture settings live in [`assets/registration/config.yml`](/home/rongfei/WorkSpace/marker_to_pos/assets/registration/config.yml):
@@ -130,7 +130,9 @@ Flask routes exposed by `web/app.py`:
 - `/`
   Serves the test UI and injects `ws://localhost:8765` as the default WebSocket URL
 - `/test-image`
-  Returns `assets/fake_background_multiple_qr.png`
+  Returns `assets/fake_background_apriltag.png`
+- `/detector-config`
+  Returns `{"type":"apriltag"}` on `GET`; `POST` accepts only `apriltag`
 - `/registration-sample`
   Returns JSON with URLs for registration sample assets
 - `/registration-color-image`
@@ -142,4 +144,4 @@ Flask routes exposed by `web/app.py`:
 
 - If you use `launch.py`, the launcher starts both servers with their defaults only.
 - If you need custom host or port values, start `marker_to_pos.server` and `web/app.py` directly instead of using `launch.py`.
-- The Flask UI assumes the QR WebSocket server is reachable at `ws://localhost:8765` unless changed in the browser UI.
+- The Flask UI assumes the AprilTag WebSocket server is reachable at `ws://localhost:8765` unless changed in the browser UI.

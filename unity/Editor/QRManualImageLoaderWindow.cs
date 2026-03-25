@@ -4,11 +4,11 @@ using UnityEngine;
 
 public sealed class QRManualImageLoaderWindow : EditorWindow
 {
-    const string Title = "QR Debug Image Loader";
+    const string Title = "Marker Debug Image Loader";
 
     Vector2 scrollPosition;
 
-    [MenuItem("Window/QR/Debug Image Loader")]
+    [MenuItem("Window/Markers/Debug Image Loader")]
     static void OpenWindow()
     {
         GetWindow<QRManualImageLoaderWindow>(Title);
@@ -16,7 +16,7 @@ public sealed class QRManualImageLoaderWindow : EditorWindow
 
     void OnGUI()
     {
-        EditorGUILayout.LabelField("Manual QR Image Loader", EditorStyles.boldLabel);
+        EditorGUILayout.LabelField("Manual Marker Image Loader", EditorStyles.boldLabel);
         EditorGUILayout.HelpBox("Load a still image when the camera feed is unavailable. Enable debug mode on QRDetectionRenderer to use this texture.", MessageType.Info);
 
         using (new EditorGUILayout.HorizontalScope())
@@ -49,7 +49,7 @@ public sealed class QRManualImageLoaderWindow : EditorWindow
 
     void LoadImageFromDisk()
     {
-        string path = EditorUtility.OpenFilePanel("Load QR Debug Image", Application.dataPath, "png,jpg,jpeg");
+        string path = EditorUtility.OpenFilePanel("Load Marker Debug Image", Application.dataPath, "png,jpg,jpeg");
         if (string.IsNullOrEmpty(path))
             return;
 
