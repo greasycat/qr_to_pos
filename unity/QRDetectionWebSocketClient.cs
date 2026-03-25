@@ -30,7 +30,7 @@ public sealed class QRDetectionWebSocketClient
         websocket = new WebSocket(serverUrl);
         this.onDetectionResponse = onDetectionResponse;
 
-        websocket.OnOpen += () => Debug.Log("QRDetectionRenderer: WebSocket connected");
+        websocket.OnOpen += () => Debug.Log("MarkerDetectionRenderer: WebSocket connected");
         websocket.OnError += HandleSocketError;
         websocket.OnClose += HandleSocketClose;
         websocket.OnMessage += HandleMessage;
@@ -93,7 +93,7 @@ public sealed class QRDetectionWebSocketClient
 
         if (!string.IsNullOrEmpty(response.error))
         {
-            Debug.LogError("QRDetectionRenderer: Server error: " + response.error);
+            Debug.LogError("MarkerDetectionRenderer: Server error: " + response.error);
             sending = false;
             return;
         }
@@ -106,12 +106,12 @@ public sealed class QRDetectionWebSocketClient
     void HandleSocketError(string error)
     {
         sending = false;
-        Debug.LogError("QRDetectionRenderer: WebSocket error: " + error);
+        Debug.LogError("MarkerDetectionRenderer: WebSocket error: " + error);
     }
 
     void HandleSocketClose(WebSocketCloseCode closeCode)
     {
         sending = false;
-        Debug.Log("QRDetectionRenderer: WebSocket closed");
+        Debug.Log("MarkerDetectionRenderer: WebSocket closed");
     }
 }

@@ -17,7 +17,7 @@ public sealed class QRManualImageLoaderWindow : EditorWindow
     void OnGUI()
     {
         EditorGUILayout.LabelField("Manual Marker Image Loader", EditorStyles.boldLabel);
-        EditorGUILayout.HelpBox("Load a still image when the camera feed is unavailable. Enable debug mode on QRDetectionRenderer to use this texture.", MessageType.Info);
+        EditorGUILayout.HelpBox("Load a still image when the camera feed is unavailable. Enable debug mode on MarkerDetectionRenderer to use this texture.", MessageType.Info);
 
         using (new EditorGUILayout.HorizontalScope())
         {
@@ -66,7 +66,7 @@ public sealed class QRManualImageLoaderWindow : EditorWindow
 
         if (!QRDebugImageStore.TrySetImage(imageBytes, Path.GetFileName(path)))
         {
-            Debug.LogError("QRManualImageLoaderWindow: Failed to load image.");
+            Debug.LogError("MarkerManualImageLoaderWindow: Failed to load image.");
             return;
         }
 

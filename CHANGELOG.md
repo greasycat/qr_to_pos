@@ -1,3 +1,4 @@
+2026-03-25: Rename the Unity renderer component to MarkerDetectionRenderer and strip inspector grouping attributes from the script.
 2026-03-25: Remove QR detection support, make the stack AprilTag-only, and replace the bundled QR sample with an AprilTag test image.
 2026-03-25: Use the normal `detect` websocket payload for Unity debug-image requests so manually loaded textures bypass Unity flip processing.
 2026-03-25: Normalize QR and AprilTag bounding boxes from decoded quad geometry so both detector modes project detections consistently.
