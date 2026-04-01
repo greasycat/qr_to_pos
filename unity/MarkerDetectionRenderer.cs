@@ -29,6 +29,7 @@ public class MarkerDetectionRenderer : MonoBehaviour
     public Vector3 markerScale = new Vector3(0.08f, 0.08f, 0.08f);
     public float markerVerticalOffset = 0.05f;
     public List<MarkerPrefabOverride> markerPrefabOverrides = new List<MarkerPrefabOverride>();
+    public bool removeColorWhenUsingPrefab = true;
 
     public bool showDebugBounds = true;
     public Color debugBoundsColor = Color.blue;
@@ -247,7 +248,8 @@ public class MarkerDetectionRenderer : MonoBehaviour
                 worldPosition,
                 markerScale,
                 detection,
-                GetMarkerPrefabForDetection(detection, prefabLookup));
+                GetMarkerPrefabForDetection(detection, prefabLookup),
+                removeColorWhenUsingPrefab);
         }
     }
 

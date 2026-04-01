@@ -1,3 +1,4 @@
+2026-04-01: Add a Unity renderer flag that skips tag-color tinting for prefab-spawned markers by default while keeping primitive cubes colorized.
 2026-04-01: Let Unity MarkerDetectionRenderer spawn per-tag prefabs from an index-to-prefab override list, falling back to the default cube when no override exists.
 2026-04-01: Overhaul Unity marker tracking to upsert one cube per tag id, snap placements immediately onto the first collider below, remove fall physics, and expire unseen tags after 3 seconds.
 2026-04-01: Prevent Unity tracked markers from expiring between websocket updates by disabling zero-second expiry and clamping short lifetimes above the send interval.

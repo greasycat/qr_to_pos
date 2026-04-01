@@ -15,7 +15,8 @@ public sealed class MarkerManager
         Vector3 targetPosition,
         Vector3 markerScale,
         MarkerDetection detection,
-        GameObject markerPrefab)
+        GameObject markerPrefab,
+        bool removeColorWhenUsingPrefab)
     {
         string tagKey;
         if (!TryGetTrackingKey(detection, out tagKey))
@@ -38,7 +39,7 @@ public sealed class MarkerManager
                 markerScale,
                 markerColor,
                 markerPrefab);
-            trackedMarker = new TrackedMarker(marker);
+            trackedMarker = new TrackedMarker(marker, markerPrefab != null);
             trackedMarkers[tagKey] = trackedMarker;
         }
         else
@@ -46,7 +47,8 @@ public sealed class MarkerManager
             marker = trackedMarker.Marker;
         }
 
-        UpdateMarker(marker, markerParent, markerName, markerScale, markerColor);
+        bool applyColor = !trackedMarker.UsesPrefab || !removeColorWhenUsingPrefab;
+        UpdateMarker(marker, markerParent, markerName, markerScale, markerColor, applyColor);
         marker.transform.rotation = Quaternion.identity;
         marker.transform.position = targetPosition;
         marker.transform.position = ResolvePlacementPosition(marker, targetPosition);
@@ -71,7 +73,7 @@ public sealed class MarkerManager
         }
 
         marker.transform.position = position;
-        UpdateMarker(marker, markerParent, markerName, debugBoundsScale, debugBoundsColor);
+        UpdateMarker(marker, markerParent, markerName, debugBoundsScale, debugBoundsColor, true);
     }
 
     public void EndDebugMarkerRefresh()
@@ -156,15 +158,18 @@ public sealed class MarkerManager
             ? Object.Instantiate(markerPrefab, position, Quaternion.identity)
             : GameObject.CreatePrimitive(PrimitiveType.Cube);
         marker.transform.position = position;
-        UpdateMarker(marker, markerParent, markerName, scale, color);
+        UpdateMarker(marker, markerParent, markerName, scale, color, true);
         return marker;
     }
 
-    void UpdateMarker(GameObject marker, Transform markerParent, string markerName, Vector3 scale, Color color)
+    void UpdateMarker(GameObject marker, Transform markerParent, string markerName, Vector3 scale, Color color, bool applyColor)
     {
         marker.name = markerName;
         marker.transform.SetParent(markerParent, true);
         marker.transform.localScale = scale;
+
+        if (!applyColor)
+            return;
 
         Renderer[] markerRenderers = marker.GetComponentsInChildren<Renderer>(true);
         for (int i = 0; i < markerRenderers.Length; i++)
@@ -308,11 +313,13 @@ public sealed class MarkerManager
     sealed class TrackedMarker
     {
         public readonly GameObject Marker;
+        public readonly bool UsesPrefab;
         public float LastSeenTime;
 
-        public TrackedMarker(GameObject marker)
+        public TrackedMarker(GameObject marker, bool usesPrefab)
         {
             Marker = marker;
+            UsesPrefab = usesPrefab;
             LastSeenTime = Time.time;
         }
     }
