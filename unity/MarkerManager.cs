@@ -31,7 +31,7 @@ public sealed class MarkerManager
             marker = CreateMarker(
                 markerParent,
                 markerName,
-                GetSpawnPosition(targetPosition, fallSpawnHeight, enableFall),
+                targetPosition,
                 markerScale,
                 markerColor);
             trackedMarker = new TrackedMarker(marker);
@@ -49,8 +49,7 @@ public sealed class MarkerManager
             enableFall,
             fallSpawnHeight,
             fallAcceleration,
-            maxFallSpeed,
-            isNewMarker);
+            maxFallSpeed);
         trackedMarker.LastSeenTime = Time.time;
     }
 
@@ -241,22 +240,13 @@ public sealed class MarkerManager
         return string.Format("Marker_{0}", label);
     }
 
-    static Vector3 GetSpawnPosition(Vector3 targetPosition, float fallSpawnHeight, bool enableFall)
-    {
-        if (!enableFall)
-            return targetPosition;
-
-        return new Vector3(targetPosition.x, targetPosition.y + Mathf.Max(0f, fallSpawnHeight), targetPosition.z);
-    }
-
     static void UpdateFallController(
         GameObject marker,
         Vector3 targetPosition,
         bool enableFall,
         float fallSpawnHeight,
         float fallAcceleration,
-        float maxFallSpeed,
-        bool spawnFromAbove)
+        float maxFallSpeed)
     {
         var fallController = marker.GetComponent<MarkerFallController>();
         if (!enableFall)
@@ -277,7 +267,7 @@ public sealed class MarkerManager
             fallController = marker.AddComponent<MarkerFallController>();
 
         fallController.Configure(fallSpawnHeight, fallAcceleration, maxFallSpeed);
-        fallController.SetTarget(targetPosition, spawnFromAbove);
+        fallController.SetTarget(targetPosition, false);
     }
 
     sealed class TrackedMarker
