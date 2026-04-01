@@ -1,6 +1,7 @@
 using Intel.RealSense;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Serialization;
 
 public class MarkerDetectionRenderer : MonoBehaviour
 {
@@ -19,7 +20,6 @@ public class MarkerDetectionRenderer : MonoBehaviour
     public Terrain terrain;
     public Transform markerParent;
     public Vector3 markerScale = new Vector3(0.08f, 0.08f, 0.08f);
-    public Color markerColor = Color.green;
     public float markerVerticalOffset = 0.05f;
 
     public bool enableMarkerFall = true;
@@ -27,8 +27,8 @@ public class MarkerDetectionRenderer : MonoBehaviour
     public float markerFallAcceleration = 4f;
     public float markerMaxFallSpeed = 2.5f;
 
-    public float markerRespawnDelaySeconds = 5f;
-    public float markerRespawnDistance = 10f;
+    [FormerlySerializedAs("markerRespawnDelaySeconds")]
+    public float markerExpiryDelaySeconds = 5f;
 
     public bool showDebugBounds = true;
     public Color debugBoundsColor = Color.blue;
@@ -96,6 +96,9 @@ public class MarkerDetectionRenderer : MonoBehaviour
 
         if (detectionsDirty)
             RefreshMarkers();
+
+        if (markerManager != null)
+            markerManager.PruneExpiredMarkers(Time.time, markerExpiryDelaySeconds);
     }
 
     async void OnDestroy()
@@ -197,9 +200,19 @@ public class MarkerDetectionRenderer : MonoBehaviour
             currentDetections = new List<MarkerDetection>(detections);
         }
 
+        var processedTagKeys = new HashSet<string>();
         for (int i = 0; i < currentDetections.Count; i++)
         {
             MarkerDetection detection = currentDetections[i];
+            string tagKey = MarkerManager.GetTrackingKey(detection);
+            if (!processedTagKeys.Add(tagKey))
+            {
+                Debug.LogWarningFormat(
+                    "MarkerDetectionRenderer: Duplicate tag '{0}' detected in the same frame. Using the first detection only.",
+                    tagKey);
+                continue;
+            }
+
             Vector3 worldPosition;
             bool isOutOfBounds;
             if (!terrainMapper.TryGetMarkerPosition(detection, markerVerticalOffset, out worldPosition, out isOutOfBounds))
@@ -215,19 +228,15 @@ public class MarkerDetectionRenderer : MonoBehaviour
                 continue;
             }
 
-            markerManager.SpawnMarker(
+            markerManager.TrackMarker(
                 markerParent,
                 worldPosition,
                 markerScale,
-                markerColor,
                 detection,
-                i,
                 enableMarkerFall,
                 markerFallSpawnHeight,
                 markerFallAcceleration,
-                markerMaxFallSpeed,
-                markerRespawnDelaySeconds,
-                markerRespawnDistance);
+                markerMaxFallSpeed);
         }
     }
 

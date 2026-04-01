@@ -81,9 +81,10 @@ Supported WebSocket request styles:
 Response behavior:
 
 - `detect` returns `action`, `homography`, `detections`, `count`, and `processing_time`
-- Each detection may include `bbox`, `confidence`, `decoded`, `homography`, `depth_bbox`, `depth_centroid`, and `depth_centroid_pct`
+- Each detection may include `data`, `bbox`, `confidence`, `decoded`, `homography`, `depth_bbox`, `depth_centroid`, and `depth_centroid_pct`
 - The detector backend is fixed to `apriltag`; QR detection is no longer supported
 - Invalid JSON or missing fields return JSON errors
+- The Unity live renderer treats `data` as the block identity, assigns a deterministic color per tag value, ignores duplicate same-ID detections after the first occurrence in a frame, and removes blocks for missing tags after the configured expiry delay
 
 Debug capture settings live in [`assets/registration/config.yml`](/home/rongfei/WorkSpace/marker_to_pos/assets/registration/config.yml):
 

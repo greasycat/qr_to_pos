@@ -1,49 +1,57 @@
-using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
 public sealed class MarkerManager
 {
-    const float DefaultRecentDetectionLifetimeSeconds = 5f;
-    const float DefaultRecentDetectionDistance = 10f;
-
-    readonly List<GameObject> spawnedMarkers = new List<GameObject>();
-    readonly List<RecentDetectionCentroid> recentDetectionCentroids = new List<RecentDetectionCentroid>();
+    readonly Dictionary<string, TrackedMarker> trackedMarkers = new Dictionary<string, TrackedMarker>();
     readonly Dictionary<string, GameObject> debugMarkers = new Dictionary<string, GameObject>();
     readonly HashSet<string> activeDebugMarkers = new HashSet<string>();
 
-    MarkerManagerCoroutineHost coroutineHost;
-
-    public void SpawnMarker(
+    public void TrackMarker(
         Transform markerParent,
         Vector3 targetPosition,
         Vector3 markerScale,
-        Color markerColor,
         MarkerDetection detection,
-        int index,
         bool enableFall,
         float fallSpawnHeight,
         float fallAcceleration,
-        float maxFallSpeed,
-        float recentDetectionLifetimeSeconds = DefaultRecentDetectionLifetimeSeconds,
-        float recentDetectionDistance = DefaultRecentDetectionDistance)
+        float maxFallSpeed)
     {
-        EnsureCoroutineHost(markerParent);
         PruneMissingMarkers();
 
-        if (!CanSpawnAtWorldPosition(targetPosition, recentDetectionDistance))
-            return;
+        string tagKey = GetTrackingKey(detection);
+        string markerName = BuildMarkerName(detection, tagKey);
+        Color markerColor = GetMarkerColor(detection, tagKey);
 
-        GameObject marker = CreateMarker(
-            markerParent,
-            BuildMarkerName(detection, index),
-            GetSpawnPosition(targetPosition, fallSpawnHeight, enableFall),
-            markerScale,
-            markerColor);
+        TrackedMarker trackedMarker;
+        GameObject marker;
+        bool isNewMarker = !trackedMarkers.TryGetValue(tagKey, out trackedMarker) || trackedMarker.Marker == null;
+        if (isNewMarker)
+        {
+            marker = CreateMarker(
+                markerParent,
+                markerName,
+                GetSpawnPosition(targetPosition, fallSpawnHeight, enableFall),
+                markerScale,
+                markerColor);
+            trackedMarker = new TrackedMarker(marker);
+            trackedMarkers[tagKey] = trackedMarker;
+        }
+        else
+        {
+            marker = trackedMarker.Marker;
+        }
 
-        spawnedMarkers.Add(marker);
-        RegisterRecentDetectionCentroid(targetPosition, recentDetectionLifetimeSeconds);
-        UpdateFallController(marker, targetPosition, enableFall, fallSpawnHeight, fallAcceleration, maxFallSpeed);
+        UpdateMarker(marker, markerParent, markerName, markerScale, markerColor);
+        UpdateFallController(
+            marker,
+            targetPosition,
+            enableFall,
+            fallSpawnHeight,
+            fallAcceleration,
+            maxFallSpeed,
+            isNewMarker);
+        trackedMarker.LastSeenTime = Time.time;
     }
 
     public void BeginDebugMarkerRefresh()
@@ -63,7 +71,8 @@ public sealed class MarkerManager
             return;
         }
 
-        UpdateMarker(marker, markerParent, position, debugBoundsScale, debugBoundsColor);
+        marker.transform.position = position;
+        UpdateMarker(marker, markerParent, markerName, debugBoundsScale, debugBoundsColor);
     }
 
     public void EndDebugMarkerRefresh()
@@ -89,17 +98,13 @@ public sealed class MarkerManager
 
     public void ClearMarkers()
     {
-        for (int i = 0; i < spawnedMarkers.Count; i++)
+        foreach (var entry in trackedMarkers)
         {
-            if (spawnedMarkers[i] != null)
-                Object.Destroy(spawnedMarkers[i]);
+            if (entry.Value != null && entry.Value.Marker != null)
+                Object.Destroy(entry.Value.Marker);
         }
 
-        if (coroutineHost != null)
-            coroutineHost.StopAllCoroutines();
-
-        spawnedMarkers.Clear();
-        recentDetectionCentroids.Clear();
+        trackedMarkers.Clear();
     }
 
     public void ClearDebugMarkers()
@@ -120,89 +125,61 @@ public sealed class MarkerManager
         ClearDebugMarkers();
     }
 
-    bool CanSpawnAtWorldPosition(Vector3 targetPosition, float recentDetectionDistance)
+    public void PruneExpiredMarkers(float currentTime, float markerLifetimeSeconds)
     {
-        float maxDistance = Mathf.Max(0f, recentDetectionDistance);
-        float maxDistanceSqr = maxDistance * maxDistance;
+        if (trackedMarkers.Count == 0)
+            return;
 
-        for (int i = spawnedMarkers.Count - 1; i >= 0; i--)
+        float lifetime = Mathf.Max(0f, markerLifetimeSeconds);
+        var expiredKeys = new List<string>();
+        foreach (var entry in trackedMarkers)
         {
-            GameObject marker = spawnedMarkers[i];
-            if (marker == null)
+            TrackedMarker trackedMarker = entry.Value;
+            if (trackedMarker == null || trackedMarker.Marker == null)
+            {
+                expiredKeys.Add(entry.Key);
                 continue;
+            }
 
-            if (IsWithinSpawnDistance(marker.transform.position, targetPosition, maxDistanceSqr))
-                return false;
+            if (currentTime - trackedMarker.LastSeenTime > lifetime)
+            {
+                Object.Destroy(trackedMarker.Marker);
+                expiredKeys.Add(entry.Key);
+            }
         }
 
-        float totalDistance = 0f;
-        for (int i = recentDetectionCentroids.Count - 1; i >= 0; i--)
-        {
-            float d = (recentDetectionCentroids[i].WorldPosition - targetPosition).sqrMagnitude;
-            totalDistance += d;
-            if (IsWithinSpawnDistance(recentDetectionCentroids[i].WorldPosition, targetPosition, maxDistanceSqr))
-                return false;
-        }
-
-        Debug.Log($"Spawn filter distances totalSqr={totalDistance}, activeMarkers={spawnedMarkers.Count}, recentCentroids={recentDetectionCentroids.Count}");
-
-        return true;
-    }
-
-    void RegisterRecentDetectionCentroid(Vector3 worldPosition, float recentDetectionLifetimeSeconds)
-    {
-        var centroid = new RecentDetectionCentroid(worldPosition);
-        recentDetectionCentroids.Add(centroid);
-
-        if (coroutineHost == null)
-            return;
-
-        centroid.ExpiryCoroutine = coroutineHost.StartCoroutine(
-            ExpireRecentDetectionCentroidAfterDelay(centroid, Mathf.Max(0f, recentDetectionLifetimeSeconds)));
-    }
-
-    IEnumerator ExpireRecentDetectionCentroidAfterDelay(RecentDetectionCentroid centroid, float delaySeconds)
-    {
-        if (delaySeconds > 0f)
-            yield return new WaitForSeconds(delaySeconds);
-
-        recentDetectionCentroids.Remove(centroid);
-    }
-
-    void EnsureCoroutineHost(Transform markerParent)
-    {
-        if (markerParent == null)
-            return;
-
-        if (coroutineHost != null)
-            return;
-
-        coroutineHost = markerParent.GetComponent<MarkerManagerCoroutineHost>();
-        if (coroutineHost == null)
-            coroutineHost = markerParent.gameObject.AddComponent<MarkerManagerCoroutineHost>();
+        for (int i = 0; i < expiredKeys.Count; i++)
+            trackedMarkers.Remove(expiredKeys[i]);
     }
 
     void PruneMissingMarkers()
     {
-        for (int i = spawnedMarkers.Count - 1; i >= 0; i--)
+        if (trackedMarkers.Count == 0)
+            return;
+
+        var missingKeys = new List<string>();
+        foreach (var entry in trackedMarkers)
         {
-            if (spawnedMarkers[i] == null)
-                spawnedMarkers.RemoveAt(i);
+            if (entry.Value == null || entry.Value.Marker == null)
+                missingKeys.Add(entry.Key);
         }
+
+        for (int i = 0; i < missingKeys.Count; i++)
+            trackedMarkers.Remove(missingKeys[i]);
     }
 
     GameObject CreateMarker(Transform markerParent, string markerName, Vector3 position, Vector3 scale, Color color)
     {
         GameObject marker = GameObject.CreatePrimitive(PrimitiveType.Cube);
-        marker.name = markerName;
-        UpdateMarker(marker, markerParent, position, scale, color);
+        marker.transform.position = position;
+        UpdateMarker(marker, markerParent, markerName, scale, color);
         return marker;
     }
 
-    void UpdateMarker(GameObject marker, Transform markerParent, Vector3 position, Vector3 scale, Color color)
+    void UpdateMarker(GameObject marker, Transform markerParent, string markerName, Vector3 scale, Color color)
     {
+        marker.name = markerName;
         marker.transform.SetParent(markerParent, true);
-        marker.transform.position = position;
         marker.transform.localScale = scale;
 
         var markerRenderer = marker.GetComponent<Renderer>();
@@ -210,15 +187,58 @@ public sealed class MarkerManager
             markerRenderer.material.color = color;
     }
 
-    static string BuildMarkerName(MarkerDetection detection, int index)
+    public static string GetTrackingKey(MarkerDetection detection)
+    {
+        if (!string.IsNullOrEmpty(detection.data))
+            return detection.data;
+        if (!string.IsNullOrEmpty(detection.decoded))
+            return detection.decoded;
+
+        return "Marker";
+    }
+
+    static Color GetMarkerColor(MarkerDetection detection, string tagKey)
+    {
+        int tagId;
+        if (int.TryParse(detection.data, out tagId))
+            return BuildMarkerColorFromSeed(unchecked((uint)tagId));
+
+        return BuildMarkerColorFromSeed(ComputeStableHash(tagKey));
+    }
+
+    static Color BuildMarkerColorFromSeed(uint seed)
+    {
+        uint mixedSeed = seed * 2654435761u + 2246822519u;
+        float hue = (mixedSeed % 360u) / 360f;
+        float saturation = 0.65f + ((mixedSeed >> 9) % 20u) / 100f;
+        float value = 0.85f + ((mixedSeed >> 17) % 10u) / 100f;
+        return Color.HSVToRGB(hue, saturation, value);
+    }
+
+    static uint ComputeStableHash(string value)
+    {
+        const uint offsetBasis = 2166136261u;
+        const uint prime = 16777619u;
+
+        if (string.IsNullOrEmpty(value))
+            return offsetBasis;
+
+        uint hash = offsetBasis;
+        for (int i = 0; i < value.Length; i++)
+        {
+            hash ^= value[i];
+            hash *= prime;
+        }
+        return hash;
+    }
+
+    static string BuildMarkerName(MarkerDetection detection, string tagKey)
     {
         string label = detection.decoded;
         if (string.IsNullOrEmpty(label))
-            label = detection.data;
-        if (string.IsNullOrEmpty(label))
-            label = "Marker";
+            label = tagKey;
 
-        return string.Format("Marker_{0}_{1}", index, label);
+        return string.Format("Marker_{0}", label);
     }
 
     static Vector3 GetSpawnPosition(Vector3 targetPosition, float fallSpawnHeight, bool enableFall)
@@ -235,7 +255,8 @@ public sealed class MarkerManager
         bool enableFall,
         float fallSpawnHeight,
         float fallAcceleration,
-        float maxFallSpeed)
+        float maxFallSpeed,
+        bool spawnFromAbove)
     {
         var fallController = marker.GetComponent<MarkerFallController>();
         if (!enableFall)
@@ -256,26 +277,18 @@ public sealed class MarkerManager
             fallController = marker.AddComponent<MarkerFallController>();
 
         fallController.Configure(fallSpawnHeight, fallAcceleration, maxFallSpeed);
-        fallController.SetTarget(targetPosition, true);
+        fallController.SetTarget(targetPosition, spawnFromAbove);
     }
 
-    static bool IsWithinSpawnDistance(Vector3 a, Vector3 b, float maxDistanceSqr)
+    sealed class TrackedMarker
     {
-        return (a - b).sqrMagnitude <= maxDistanceSqr;
-    }
+        public readonly GameObject Marker;
+        public float LastSeenTime;
 
-    sealed class RecentDetectionCentroid
-    {
-        public readonly Vector3 WorldPosition;
-        public Coroutine ExpiryCoroutine;
-
-        public RecentDetectionCentroid(Vector3 worldPosition)
+        public TrackedMarker(GameObject marker)
         {
-            WorldPosition = worldPosition;
+            Marker = marker;
+            LastSeenTime = Time.time;
         }
     }
-}
-
-public sealed class MarkerManagerCoroutineHost : MonoBehaviour
-{
 }
