@@ -4,6 +4,7 @@ using UnityEngine;
 public sealed class MarkerManager
 {
     const float MarkerLifetimeSeconds = 3f;
+    const float MaxMarkerMovementDistancePerUpdate = 5f;
     const float PlacementRaycastPadding = 0.01f;
 
     readonly Dictionary<string, TrackedMarker> trackedMarkers = new Dictionary<string, TrackedMarker>();
@@ -50,8 +51,11 @@ public sealed class MarkerManager
         bool applyColor = !trackedMarker.UsesPrefab || !removeColorWhenUsingPrefab;
         UpdateMarker(marker, markerParent, markerName, markerScale, markerColor, applyColor);
         marker.transform.rotation = Quaternion.identity;
-        marker.transform.position = targetPosition;
-        marker.transform.position = ResolvePlacementPosition(marker, targetPosition);
+        Vector3 nextTargetPosition = isNewMarker
+            ? targetPosition
+            : Vector3.MoveTowards(marker.transform.position, targetPosition, MaxMarkerMovementDistancePerUpdate);
+        marker.transform.position = nextTargetPosition;
+        marker.transform.position = ResolvePlacementPosition(marker, nextTargetPosition);
         trackedMarker.LastSeenTime = Time.time;
     }
 
