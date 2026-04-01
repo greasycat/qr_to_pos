@@ -1,3 +1,4 @@
+2026-04-01: Track Unity marker blocks by AprilTag value, keep only the first same-ID detection per frame, assign stable per-tag colors, and expire missing tags after a delay instead of respawning nearby cubes.
 2026-03-25: Rename all remaining QR-prefixed Unity files/classes and Python QRCode types to Marker-prefixed equivalents.
 2026-03-25: Remove the redundant CLAUDE.md instructions file and keep AGENTS.md as the single repo guidance source.
 2026-03-25: Rename the Unity renderer component to MarkerDetectionRenderer and strip inspector grouping attributes from the script.

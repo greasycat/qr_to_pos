@@ -103,6 +103,8 @@ def test_detect_apriltags_from_image(stubbed_server):
     assert result["homography"] is None
 
     for det in result["detections"]:
+        assert det["data"] == "7"
+
         # Every detection must have a bounding box with 4 ints
         assert det["bbox"] is not None
         assert len(det["bbox"]) == 4
