@@ -14,7 +14,8 @@ public sealed class MarkerManager
         Transform markerParent,
         Vector3 targetPosition,
         Vector3 markerScale,
-        MarkerDetection detection)
+        MarkerDetection detection,
+        GameObject markerPrefab)
     {
         string tagKey;
         if (!TryGetTrackingKey(detection, out tagKey))
@@ -35,7 +36,8 @@ public sealed class MarkerManager
                 markerName,
                 targetPosition,
                 markerScale,
-                markerColor);
+                markerColor,
+                markerPrefab);
             trackedMarker = new TrackedMarker(marker);
             trackedMarkers[tagKey] = trackedMarker;
         }
@@ -63,7 +65,7 @@ public sealed class MarkerManager
         GameObject marker;
         if (!debugMarkers.TryGetValue(markerName, out marker) || marker == null)
         {
-            marker = CreateMarker(markerParent, markerName, position, debugBoundsScale, debugBoundsColor);
+            marker = CreateMarker(markerParent, markerName, position, debugBoundsScale, debugBoundsColor, null);
             debugMarkers[markerName] = marker;
             return;
         }
@@ -148,9 +150,11 @@ public sealed class MarkerManager
             trackedMarkers.Remove(expiredKeys[i]);
     }
 
-    GameObject CreateMarker(Transform markerParent, string markerName, Vector3 position, Vector3 scale, Color color)
+    GameObject CreateMarker(Transform markerParent, string markerName, Vector3 position, Vector3 scale, Color color, GameObject markerPrefab)
     {
-        GameObject marker = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        GameObject marker = markerPrefab != null
+            ? Object.Instantiate(markerPrefab, position, Quaternion.identity)
+            : GameObject.CreatePrimitive(PrimitiveType.Cube);
         marker.transform.position = position;
         UpdateMarker(marker, markerParent, markerName, scale, color);
         return marker;
@@ -162,9 +166,9 @@ public sealed class MarkerManager
         marker.transform.SetParent(markerParent, true);
         marker.transform.localScale = scale;
 
-        var markerRenderer = marker.GetComponent<Renderer>();
-        if (markerRenderer != null)
-            markerRenderer.material.color = color;
+        Renderer[] markerRenderers = marker.GetComponentsInChildren<Renderer>(true);
+        for (int i = 0; i < markerRenderers.Length; i++)
+            markerRenderers[i].material.color = color;
     }
 
     public static bool TryGetTrackingKey(MarkerDetection detection, out string tagKey)
@@ -225,11 +229,11 @@ public sealed class MarkerManager
 
     static Vector3 ResolvePlacementPosition(GameObject marker, Vector3 startPosition)
     {
-        Collider markerCollider = marker.GetComponent<Collider>();
-        if (markerCollider == null)
+        Bounds markerBounds;
+        if (!TryGetMarkerBounds(marker, out markerBounds))
             return startPosition;
 
-        float halfHeight = markerCollider.bounds.extents.y;
+        float halfHeight = markerBounds.extents.y;
         Vector3 rayOrigin = startPosition + Vector3.up * (halfHeight + PlacementRaycastPadding);
         RaycastHit[] hits = Physics.RaycastAll(
             rayOrigin,
@@ -243,7 +247,7 @@ public sealed class MarkerManager
         float surfaceY = startPosition.y;
         for (int i = 0; i < hits.Length; i++)
         {
-            if (hits[i].collider == null || hits[i].collider == markerCollider)
+            if (hits[i].collider == null || hits[i].collider.transform.IsChildOf(marker.transform))
                 continue;
 
             if (hits[i].distance < nearestDistance)
@@ -258,6 +262,47 @@ public sealed class MarkerManager
             return startPosition;
 
         return new Vector3(startPosition.x, surfaceY + halfHeight, startPosition.z);
+    }
+
+    static bool TryGetMarkerBounds(GameObject marker, out Bounds bounds)
+    {
+        Collider[] colliders = marker.GetComponentsInChildren<Collider>(true);
+        if (TryEncapsulateBounds(colliders, out bounds))
+            return true;
+
+        Renderer[] renderers = marker.GetComponentsInChildren<Renderer>(true);
+        return TryEncapsulateBounds(renderers, out bounds);
+    }
+
+    static bool TryEncapsulateBounds<T>(T[] components, out Bounds bounds) where T : Component
+    {
+        bounds = default;
+        bool hasBounds = false;
+        for (int i = 0; i < components.Length; i++)
+        {
+            if (components[i] == null)
+                continue;
+
+            Bounds componentBounds;
+            if (components[i] is Collider collider)
+                componentBounds = collider.bounds;
+            else if (components[i] is Renderer renderer)
+                componentBounds = renderer.bounds;
+            else
+                continue;
+
+            if (!hasBounds)
+            {
+                bounds = componentBounds;
+                hasBounds = true;
+            }
+            else
+            {
+                bounds.Encapsulate(componentBounds);
+            }
+        }
+
+        return hasBounds;
     }
 
     sealed class TrackedMarker

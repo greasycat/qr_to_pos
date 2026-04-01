@@ -1,6 +1,14 @@
 using Intel.RealSense;
+using System;
 using System.Collections.Generic;
 using UnityEngine;
+
+[Serializable]
+public sealed class MarkerPrefabOverride
+{
+    public int index;
+    public GameObject prefab;
+}
 
 public class MarkerDetectionRenderer : MonoBehaviour
 {
@@ -20,6 +28,7 @@ public class MarkerDetectionRenderer : MonoBehaviour
     public Transform markerParent;
     public Vector3 markerScale = new Vector3(0.08f, 0.08f, 0.08f);
     public float markerVerticalOffset = 0.05f;
+    public List<MarkerPrefabOverride> markerPrefabOverrides = new List<MarkerPrefabOverride>();
 
     public bool showDebugBounds = true;
     public Color debugBoundsColor = Color.blue;
@@ -191,6 +200,7 @@ public class MarkerDetectionRenderer : MonoBehaviour
             currentDetections = new List<MarkerDetection>(detections);
         }
 
+        Dictionary<int, GameObject> prefabLookup = BuildMarkerPrefabLookup();
         var latestDetectionsByTag = new Dictionary<string, MarkerDetection>(currentDetections.Count);
         for (int i = 0; i < currentDetections.Count; i++)
         {
@@ -236,7 +246,8 @@ public class MarkerDetectionRenderer : MonoBehaviour
                 markerParent,
                 worldPosition,
                 markerScale,
-                detection);
+                detection,
+                GetMarkerPrefabForDetection(detection, prefabLookup));
         }
     }
 
@@ -253,6 +264,37 @@ public class MarkerDetectionRenderer : MonoBehaviour
             terrain,
             flipX,
             flipZ);
+    }
+
+    Dictionary<int, GameObject> BuildMarkerPrefabLookup()
+    {
+        if (markerPrefabOverrides == null || markerPrefabOverrides.Count == 0)
+            return new Dictionary<int, GameObject>();
+
+        var prefabLookup = new Dictionary<int, GameObject>(markerPrefabOverrides.Count);
+        for (int i = 0; i < markerPrefabOverrides.Count; i++)
+        {
+            MarkerPrefabOverride overrideEntry = markerPrefabOverrides[i];
+            if (overrideEntry == null || overrideEntry.prefab == null)
+                continue;
+
+            prefabLookup[overrideEntry.index] = overrideEntry.prefab;
+        }
+
+        return prefabLookup;
+    }
+
+    static GameObject GetMarkerPrefabForDetection(MarkerDetection detection, Dictionary<int, GameObject> prefabLookup)
+    {
+        int markerIndex;
+        if (!int.TryParse(detection.data, out markerIndex))
+            return null;
+
+        GameObject markerPrefab;
+        if (!prefabLookup.TryGetValue(markerIndex, out markerPrefab))
+            return null;
+
+        return markerPrefab;
     }
 
     void PumpLiveTexture()
