@@ -38,8 +38,8 @@ public class MarkerDetectionRenderer : MonoBehaviour
     public bool flipX;
     public bool flipZ = true;
 
-    int detectionCount;
-    int outOfBoundsConversionCount;
+    [SerializeField] int detectionCount;
+    [SerializeField] int outOfBoundsConversionCount;
 
     readonly List<MarkerDetection> detections = new List<MarkerDetection>();
     readonly object detectionsLock = new object();
