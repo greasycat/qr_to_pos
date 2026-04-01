@@ -129,6 +129,9 @@ public sealed class MarkerManager
         if (trackedMarkers.Count == 0)
             return;
 
+        if (markerLifetimeSeconds <= 0f || float.IsInfinity(markerLifetimeSeconds))
+            return;
+
         float lifetime = Mathf.Max(0f, markerLifetimeSeconds);
         var expiredKeys = new List<string>();
         foreach (var entry in trackedMarkers)

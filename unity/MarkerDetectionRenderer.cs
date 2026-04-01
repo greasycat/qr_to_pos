@@ -98,7 +98,7 @@ public class MarkerDetectionRenderer : MonoBehaviour
             RefreshMarkers();
 
         if (markerManager != null)
-            markerManager.PruneExpiredMarkers(Time.time, markerExpiryDelaySeconds);
+            markerManager.PruneExpiredMarkers(Time.time, GetEffectiveMarkerExpiryDelaySeconds());
     }
 
     async void OnDestroy()
@@ -253,6 +253,16 @@ public class MarkerDetectionRenderer : MonoBehaviour
             terrain,
             flipX,
             flipZ);
+    }
+
+    float GetEffectiveMarkerExpiryDelaySeconds()
+    {
+        if (markerExpiryDelaySeconds <= 0f)
+            return float.PositiveInfinity;
+
+        // Marker expiry should not outrun the websocket cadence or markers will be
+        // destroyed between valid detection responses and recreated from scratch.
+        return Mathf.Max(markerExpiryDelaySeconds, sendInterval * 2f);
     }
 
     void PumpLiveTexture()

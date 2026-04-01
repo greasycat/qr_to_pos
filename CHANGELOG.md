@@ -1,3 +1,4 @@
+2026-04-01: Prevent Unity tracked markers from expiring between websocket updates by disabling zero-second expiry and clamping short lifetimes above the send interval.
 2026-04-01: Settle Unity marker cubes instantly onto the first ground or blocking collider below their offset spawn position instead of pinning them at the offset height.
 2026-04-01: Spawn Unity marker cubes directly on the terrain and stop replaying the above-ground drop path so tracked tags land immediately.
 2026-04-01: Restore the Unity MarkerDetectionRenderer runtime detection counters in the inspector for live debugging.
