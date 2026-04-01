@@ -12,8 +12,6 @@ dependencies = [
     "pybind11-stubgen>=2.5.5",
     "pyrealsense2>=2.56.5.9235",
     "pupil-apriltags>=1.0.4",
-    "pyzbar>=0.1.9",
-    "qrdet>=2.5",
     "websockets>=15.0",
     "flask>=3.0",
     "pyyaml>=6.0.3",
@@ -29,6 +27,7 @@ dev = [
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+testpaths = ["tests"]
 
 [tool.ty.environment]
 extra-paths = ["./stubs"]

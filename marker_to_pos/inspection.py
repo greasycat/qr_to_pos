@@ -7,7 +7,7 @@ import cv2
 import numpy as np
 
 from .camera import Camera
-from .processor import QRCode, QRCodeProcessor
+from .processor import MarkerDetection, MarkerDetectionProcessor
 
 
 def show_camera(camera: Camera, window_name: str = 'Camera View') -> None:
@@ -33,10 +33,10 @@ def show_camera(camera: Camera, window_name: str = 'Camera View') -> None:
 
 def show_detections(
     camera: Camera,
-    get_detections: Callable[[], list[QRCode]],
-    window_name: str = 'QR Detection',
+    get_detections: Callable[[], list[MarkerDetection]],
+    window_name: str = "AprilTag Detection",
 ) -> None:
-    """Side-by-side raw/annotated view with QR bounding boxes. Blocks until 'q' or window closed."""
+    """Side-by-side raw/annotated view with marker bounding boxes. Blocks until 'q' or window closed."""
     cv2.namedWindow(window_name, cv2.WINDOW_AUTOSIZE)
     try:
         while camera._running:
@@ -89,11 +89,11 @@ def show_detections(
 
 
 class InteractiveCLI:
-    """Interactive command line interface for camera and QR code processing."""
+    """Interactive command line interface for camera and AprilTag processing."""
 
     def __init__(self):
         self.camera: Camera | None = None
-        self.processor: QRCodeProcessor | None = None
+        self.processor: MarkerDetectionProcessor | None = None
         self.last_detection = None
         self.latest_detections: list = []
 
@@ -115,12 +115,12 @@ class InteractiveCLI:
 
     def print_menu(self):
         print("\n" + "=" * 50)
-        print("QR Code Detection - Interactive CLI")
+        print("AprilTag Detection - Interactive CLI")
         print("=" * 50)
         print("Camera:", "Running" if self.camera and self.camera._running else "Stopped")
         print("Processor:", "Running" if self.processor and self.processor._running else "Stopped")
         if self.last_detection:
-            print(f"Last QR Code: {self.last_detection.data}")
+            print(f"Last Marker: {self.last_detection.data}")
         print("-" * 50)
         print("Commands:")
         print("  1. Start camera and processor with visualization")
@@ -144,11 +144,11 @@ class InteractiveCLI:
             else:
                 print("Warning: Camera started but no frames captured yet.")
 
-            print("Starting QR code processor...")
-            self.processor = QRCodeProcessor(
+            print("Starting AprilTag processor...")
+            self.processor = MarkerDetectionProcessor(
                 camera=self.camera,
                 min_interval=0.1,
-                model_size='s'
+                model_size="s",
             )
 
             def on_qr_detected(result):
@@ -156,9 +156,9 @@ class InteractiveCLI:
                 self.latest_detections = qr_codes
                 self.last_detection = qr_codes[0] if qr_codes else None
 
-                print(f"\n[QR Detected] Found {len(qr_codes)} QR code(s):")
+                print(f"\n[Marker Detected] Found {len(qr_codes)} marker(s):")
                 for i, qr in enumerate(qr_codes, 1):
-                    print(f"  QR {i}:")
+                    print(f"  Marker {i}:")
                     print(f"    Data: {qr.data}")
                     if qr.bbox:
                         print(f"    Bounding box: {qr.bbox}")
@@ -168,7 +168,7 @@ class InteractiveCLI:
 
             self.processor.on_result(on_qr_detected)
             self.processor.start()
-            print("QR code processor started!")
+            print("AprilTag processor started!")
             print("\n" + "=" * 50)
             print("System is running. Press 'q' in the window or close it to return to menu.")
             print("=" * 50)
@@ -218,7 +218,7 @@ class InteractiveCLI:
         print("Camera stopped successfully!")
 
     def run(self):
-        print("Welcome to QR Code Detection System!")
+        print("Welcome to the AprilTag Detection System!")
         print("Press Ctrl+C at any time to exit gracefully.\n")
 
         try:

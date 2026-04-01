@@ -2,10 +2,8 @@ using Intel.RealSense;
 using System.Collections.Generic;
 using UnityEngine;
 
-[DefaultExecutionOrder(-10)] 
-public class QRDetectionRenderer : MonoBehaviour
+public class MarkerDetectionRenderer : MonoBehaviour
 {
-    [Header("Input")]
     public bool debugMode;
     public RsFrameProvider Source;
 
@@ -15,28 +13,23 @@ public class QRDetectionRenderer : MonoBehaviour
 
     public FilterMode filterMode = FilterMode.Point;
 
-    [Header("WebSocket")]
     public string serverUrl = "ws://localhost:8765";
     public float sendInterval = 0.3f;
 
-    [Header("Marker Placement")]
     public Terrain terrain;
     public Transform markerParent;
     public Vector3 markerScale = new Vector3(0.08f, 0.08f, 0.08f);
     public Color markerColor = Color.green;
     public float markerVerticalOffset = 0.05f;
 
-    [Header("Marker Fall")]
     public bool enableMarkerFall = true;
     public float markerFallSpawnHeight = 0.4f;
     public float markerFallAcceleration = 4f;
     public float markerMaxFallSpeed = 2.5f;
 
-    [Header("Spawn Filter")]
     public float markerRespawnDelaySeconds = 5f;
     public float markerRespawnDistance = 10f;
 
-    [Header("Debug Bounds")]
     public bool showDebugBounds = true;
     public Color debugBoundsColor = Color.blue;
     public Vector3 debugBoundsScale = new Vector3(0.12f, 0.12f, 0.12f);
@@ -45,16 +38,15 @@ public class QRDetectionRenderer : MonoBehaviour
     public bool flipX;
     public bool flipZ = true;
 
-    [Header("Runtime Stats")]
-    [SerializeField] int detectionCount;
-    [SerializeField] int outOfBoundsConversionCount;
+    int detectionCount;
+    int outOfBoundsConversionCount;
 
-    readonly List<QRDetection> detections = new List<QRDetection>();
+    readonly List<MarkerDetection> detections = new List<MarkerDetection>();
     readonly object detectionsLock = new object();
 
-    QRFrameTextureSource frameTextureSource;
-    QRDetectionWebSocketClient detectionClient;
-    QRMarkerManager markerManager;
+    MarkerFrameTextureSource frameTextureSource;
+    MarkerDetectionWebSocketClient detectionClient;
+    MarkerManager markerManager;
     Texture2D currentSourceTexture;
     int lastDebugTextureVersion = -1;
 
@@ -71,14 +63,14 @@ public class QRDetectionRenderer : MonoBehaviour
         if (markerParent == null)
             markerParent = transform;
 
-        markerManager = new QRMarkerManager();
+        markerManager = new MarkerManager();
         detectionsDirty = true;
         TerrainEvents.OnHeightmapChanged += HandleTerrainHeightmapChanged;
 
         if (!debugMode)
             TryInitializeLiveFrameSource();
 
-        detectionClient = new QRDetectionWebSocketClient(serverUrl, HandleDetectionResponse);
+        detectionClient = new MarkerDetectionWebSocketClient(serverUrl, HandleDetectionResponse);
 
         try
         {
@@ -148,8 +140,8 @@ public class QRDetectionRenderer : MonoBehaviour
                 sourceTexture,
                 sendInterval,
                 debugMode
-                    ? QRDetectionWebSocketClient.DetectionPayloadType.Detect
-                    : QRDetectionWebSocketClient.DetectionPayloadType.DetectUnity);
+                    ? MarkerDetectionWebSocketClient.DetectionPayloadType.Detect
+                    : MarkerDetectionWebSocketClient.DetectionPayloadType.DetectUnity);
     }
 
     void HandleDetectionResponse(DetectionResponse response)
@@ -176,7 +168,7 @@ public class QRDetectionRenderer : MonoBehaviour
             markerManager.ClearDebugMarkers();
             if (!missingTerrainLogged)
             {
-                Debug.LogWarning("QRDetectionRenderer: No terrain assigned, skipping marker placement.");
+                Debug.LogWarning("MarkerDetectionRenderer: No terrain assigned, skipping marker placement.");
                 missingTerrainLogged = true;
             }
             return;
@@ -184,7 +176,7 @@ public class QRDetectionRenderer : MonoBehaviour
 
         missingTerrainLogged = false;
 
-        QRTerrainMapper terrainMapper = CreateTerrainMapper();
+        MarkerTerrainMapper terrainMapper = CreateTerrainMapper();
         if (showDebugBounds || debugMode)
         {
             markerManager.BeginDebugMarkerRefresh();
@@ -199,15 +191,15 @@ public class QRDetectionRenderer : MonoBehaviour
         if (currentSourceTexture == null)
             return;
 
-        List<QRDetection> currentDetections;
+        List<MarkerDetection> currentDetections;
         lock (detectionsLock)
         {
-            currentDetections = new List<QRDetection>(detections);
+            currentDetections = new List<MarkerDetection>(detections);
         }
 
         for (int i = 0; i < currentDetections.Count; i++)
         {
-            QRDetection detection = currentDetections[i];
+            MarkerDetection detection = currentDetections[i];
             Vector3 worldPosition;
             bool isOutOfBounds;
             if (!terrainMapper.TryGetMarkerPosition(detection, markerVerticalOffset, out worldPosition, out isOutOfBounds))
@@ -217,7 +209,7 @@ public class QRDetectionRenderer : MonoBehaviour
             {
                 outOfBoundsConversionCount++;
                 Debug.LogWarningFormat(
-                    "QRDetectionRenderer: Out-of-bounds detection '{0}' depth_centroid_pct={1}",
+                    "MarkerDetectionRenderer: Out-of-bounds detection '{0}' depth_centroid_pct={1}",
                     GetDetectionLabel(detection),
                     GetDepthCentroidPercentageLabel(detection));
                 continue;
@@ -239,16 +231,16 @@ public class QRDetectionRenderer : MonoBehaviour
         }
     }
 
-    void SpawnDebugBounds(QRTerrainMapper terrainMapper)
+    void SpawnDebugBounds(MarkerTerrainMapper terrainMapper)
     {
-        List<QRDebugMarkerPlacement> markers = terrainMapper.GetDebugBounds(debugBoundsY);
+        List<MarkerDebugPlacement> markers = terrainMapper.GetDebugBounds(debugBoundsY);
         for (int i = 0; i < markers.Count; i++)
             markerManager.SpawnDebugMarker(markerParent, markers[i].WorldPosition, debugBoundsScale, debugBoundsColor, markers[i].Name);
     }
 
-    QRTerrainMapper CreateTerrainMapper()
+    MarkerTerrainMapper CreateTerrainMapper()
     {
-        return new QRTerrainMapper(
+        return new MarkerTerrainMapper(
             terrain,
             flipX,
             flipZ);
@@ -264,8 +256,8 @@ public class QRDetectionRenderer : MonoBehaviour
 
     void PumpDebugTexture()
     {
-        Texture2D debugTexture = QRDebugImageStore.SourceTexture;
-        int debugTextureVersion = QRDebugImageStore.Version;
+        Texture2D debugTexture = MarkerDebugImageStore.SourceTexture;
+        int debugTextureVersion = MarkerDebugImageStore.Version;
 
         if (debugTexture == null)
         {
@@ -294,13 +286,13 @@ public class QRDetectionRenderer : MonoBehaviour
         {
             if (!missingSourceLogged)
             {
-                Debug.LogError("QRDetectionRenderer: Source is not assigned.");
+                Debug.LogError("MarkerDetectionRenderer: Source is not assigned.");
                 missingSourceLogged = true;
             }
             return;
         }
 
-        frameTextureSource = new QRFrameTextureSource(Source, _stream, _format, _streamIndex);
+        frameTextureSource = new MarkerFrameTextureSource(Source, _stream, _format, _streamIndex);
         frameTextureSource.Initialize();
         liveFrameSourceInitialized = true;
         missingSourceLogged = false;
@@ -322,17 +314,17 @@ public class QRDetectionRenderer : MonoBehaviour
         detectionsDirty = true;
     }
 
-    static string GetDetectionLabel(QRDetection detection)
+    static string GetDetectionLabel(MarkerDetection detection)
     {
         if (!string.IsNullOrEmpty(detection.decoded))
             return detection.decoded;
         if (!string.IsNullOrEmpty(detection.data))
             return detection.data;
 
-        return "QR";
+        return "Marker";
     }
 
-    static string GetDepthCentroidPercentageLabel(QRDetection detection)
+    static string GetDepthCentroidPercentageLabel(MarkerDetection detection)
     {
         if (detection.depth_centroid_pct == null)
             return "<null>";

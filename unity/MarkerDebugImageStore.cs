@@ -1,6 +1,6 @@
 using UnityEngine;
 
-public static class QRDebugImageStore
+public static class MarkerDebugImageStore
 {
     static Texture2D sourceTexture;
     static int version;

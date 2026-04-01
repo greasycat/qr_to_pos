@@ -1,20 +1,20 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-public sealed class QRTerrainMapper
+public sealed class MarkerTerrainMapper
 {
     readonly Terrain terrain;
     readonly bool flipX;
     readonly bool flipZ;
 
-    public QRTerrainMapper(Terrain terrain, bool flipX, bool flipZ)
+    public MarkerTerrainMapper(Terrain terrain, bool flipX, bool flipZ)
     {
         this.terrain = terrain;
         this.flipX = flipX;
         this.flipZ = flipZ;
     }
 
-    public bool TryGetMarkerPosition(QRDetection detection, float markerVerticalOffset, out Vector3 worldPosition, out bool isOutOfBounds)
+    public bool TryGetMarkerPosition(MarkerDetection detection, float markerVerticalOffset, out Vector3 worldPosition, out bool isOutOfBounds)
     {
         worldPosition = Vector3.zero;
         isOutOfBounds = false;
@@ -31,20 +31,20 @@ public sealed class QRTerrainMapper
         return true;
     }
 
-    public List<QRDebugMarkerPlacement> GetDebugBounds(float debugBoundsY)
+    public List<MarkerDebugPlacement> GetDebugBounds(float debugBoundsY)
     {
-        var markers = new List<QRDebugMarkerPlacement>(4);
+        var markers = new List<MarkerDebugPlacement>(4);
         if (terrain == null)
             return markers;
 
-        markers.Add(new QRDebugMarkerPlacement("QRBounds_MinMin", GetDebugWorldPosition(0f, 0f, debugBoundsY)));
-        markers.Add(new QRDebugMarkerPlacement("QRBounds_MinMax", GetDebugWorldPosition(0f, 1f, debugBoundsY)));
-        markers.Add(new QRDebugMarkerPlacement("QRBounds_MaxMin", GetDebugWorldPosition(1f, 0f, debugBoundsY)));
-        markers.Add(new QRDebugMarkerPlacement("QRBounds_MaxMax", GetDebugWorldPosition(1f, 1f, debugBoundsY)));
+        markers.Add(new MarkerDebugPlacement("MarkerBounds_MinMin", GetDebugWorldPosition(0f, 0f, debugBoundsY)));
+        markers.Add(new MarkerDebugPlacement("MarkerBounds_MinMax", GetDebugWorldPosition(0f, 1f, debugBoundsY)));
+        markers.Add(new MarkerDebugPlacement("MarkerBounds_MaxMin", GetDebugWorldPosition(1f, 0f, debugBoundsY)));
+        markers.Add(new MarkerDebugPlacement("MarkerBounds_MaxMax", GetDebugWorldPosition(1f, 1f, debugBoundsY)));
         return markers;
     }
 
-    bool TryGetDetectionNormalizedPosition(QRDetection detection, out float xNorm, out float zNorm, out bool isOutOfBounds)
+    bool TryGetDetectionNormalizedPosition(MarkerDetection detection, out float xNorm, out float zNorm, out bool isOutOfBounds)
     {
         xNorm = 0f;
         zNorm = 0f;

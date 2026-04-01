@@ -9,7 +9,8 @@ ASSETS_DIR = PROJECT_ROOT / "assets"
 REGISTRATION_DIR = ASSETS_DIR / "registration"
 REGISTRATION_COORDS_PATH = REGISTRATION_DIR / "coords.yml"
 CONFIG_PATH = REGISTRATION_DIR / "config.yml"
-_VALID_DETECTOR_TYPES = {"qr", "apriltag"}
+TEST_IMAGE_PATH = ASSETS_DIR / "fake_background_apriltag.png"
+_VALID_DETECTOR_TYPES = {"apriltag"}
 app = Flask(__name__)
 
 
@@ -56,7 +57,7 @@ def index():
 
 @app.route("/test-image")
 def test_image():
-    return send_file(ASSETS_DIR / "fake_background_multiple_qr.png")
+    return send_file(TEST_IMAGE_PATH)
 
 
 @app.route("/registration-sample")
@@ -113,9 +114,7 @@ def save_registration_coords():
 
 @app.route("/detector-config", methods=["GET"])
 def get_detector_config():
-    config = _read_config()
-    detector_type = config.get("detector", {}).get("type", "qr")
-    return jsonify({"type": detector_type})
+    return jsonify({"type": "apriltag"})
 
 
 @app.route("/detector-config", methods=["POST"])
@@ -129,13 +128,13 @@ def set_detector_config():
         return jsonify({"error": f"Invalid type. Must be one of: {sorted(_VALID_DETECTOR_TYPES)}"}), 400
 
     config = _read_config()
-    config.setdefault("detector", {})["type"] = detector_type
+    config.setdefault("detector", {})["type"] = "apriltag"
     _write_config(config)
-    return jsonify({"type": detector_type})
+    return jsonify({"type": "apriltag"})
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Flask web frontend for QR detection WebSocket testing")
+    parser = argparse.ArgumentParser(description="Flask web frontend for AprilTag detection WebSocket testing")
     parser.add_argument("--port", type=int, default=5000)
     parser.add_argument("--host", default="127.0.0.1")
     args = parser.parse_args()

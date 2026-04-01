@@ -2,7 +2,7 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
-public sealed class QRMarkerManager
+public sealed class MarkerManager
 {
     const float DefaultRecentDetectionLifetimeSeconds = 5f;
     const float DefaultRecentDetectionDistance = 10f;
@@ -12,14 +12,14 @@ public sealed class QRMarkerManager
     readonly Dictionary<string, GameObject> debugMarkers = new Dictionary<string, GameObject>();
     readonly HashSet<string> activeDebugMarkers = new HashSet<string>();
 
-    QRMarkerManagerCoroutineHost coroutineHost;
+    MarkerManagerCoroutineHost coroutineHost;
 
     public void SpawnMarker(
         Transform markerParent,
         Vector3 targetPosition,
         Vector3 markerScale,
         Color markerColor,
-        QRDetection detection,
+        MarkerDetection detection,
         int index,
         bool enableFall,
         float fallSpawnHeight,
@@ -177,9 +177,9 @@ public sealed class QRMarkerManager
         if (coroutineHost != null)
             return;
 
-        coroutineHost = markerParent.GetComponent<QRMarkerManagerCoroutineHost>();
+        coroutineHost = markerParent.GetComponent<MarkerManagerCoroutineHost>();
         if (coroutineHost == null)
-            coroutineHost = markerParent.gameObject.AddComponent<QRMarkerManagerCoroutineHost>();
+            coroutineHost = markerParent.gameObject.AddComponent<MarkerManagerCoroutineHost>();
     }
 
     void PruneMissingMarkers()
@@ -210,15 +210,15 @@ public sealed class QRMarkerManager
             markerRenderer.material.color = color;
     }
 
-    static string BuildMarkerName(QRDetection detection, int index)
+    static string BuildMarkerName(MarkerDetection detection, int index)
     {
         string label = detection.decoded;
         if (string.IsNullOrEmpty(label))
             label = detection.data;
         if (string.IsNullOrEmpty(label))
-            label = "QR";
+            label = "Marker";
 
-        return string.Format("QRMarker_{0}_{1}", index, label);
+        return string.Format("Marker_{0}_{1}", index, label);
     }
 
     static Vector3 GetSpawnPosition(Vector3 targetPosition, float fallSpawnHeight, bool enableFall)
@@ -237,7 +237,7 @@ public sealed class QRMarkerManager
         float fallAcceleration,
         float maxFallSpeed)
     {
-        var fallController = marker.GetComponent<QRMarkerFallController>();
+        var fallController = marker.GetComponent<MarkerFallController>();
         if (!enableFall)
         {
             if (fallController != null)
@@ -253,7 +253,7 @@ public sealed class QRMarkerManager
         }
 
         if (fallController == null)
-            fallController = marker.AddComponent<QRMarkerFallController>();
+            fallController = marker.AddComponent<MarkerFallController>();
 
         fallController.Configure(fallSpawnHeight, fallAcceleration, maxFallSpeed);
         fallController.SetTarget(targetPosition, true);
@@ -276,6 +276,6 @@ public sealed class QRMarkerManager
     }
 }
 
-public sealed class QRMarkerManagerCoroutineHost : MonoBehaviour
+public sealed class MarkerManagerCoroutineHost : MonoBehaviour
 {
 }

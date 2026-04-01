@@ -1,7 +1,7 @@
 using UnityEngine;
 
 [RequireComponent(typeof(Rigidbody))]
-public sealed class QRMarkerFallController : MonoBehaviour
+public sealed class MarkerFallController : MonoBehaviour
 {
     float fallSpawnHeight;
     float maxFallSpeed;

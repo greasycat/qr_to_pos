@@ -2,22 +2,22 @@ using System.IO;
 using UnityEditor;
 using UnityEngine;
 
-public sealed class QRManualImageLoaderWindow : EditorWindow
+public sealed class MarkerManualImageLoaderWindow : EditorWindow
 {
-    const string Title = "QR Debug Image Loader";
+    const string Title = "Marker Debug Image Loader";
 
     Vector2 scrollPosition;
 
-    [MenuItem("Window/QR/Debug Image Loader")]
+    [MenuItem("Window/Markers/Debug Image Loader")]
     static void OpenWindow()
     {
-        GetWindow<QRManualImageLoaderWindow>(Title);
+        GetWindow<MarkerManualImageLoaderWindow>(Title);
     }
 
     void OnGUI()
     {
-        EditorGUILayout.LabelField("Manual QR Image Loader", EditorStyles.boldLabel);
-        EditorGUILayout.HelpBox("Load a still image when the camera feed is unavailable. Enable debug mode on QRDetectionRenderer to use this texture.", MessageType.Info);
+        EditorGUILayout.LabelField("Manual Marker Image Loader", EditorStyles.boldLabel);
+        EditorGUILayout.HelpBox("Load a still image when the camera feed is unavailable. Enable debug mode on MarkerDetectionRenderer to use this texture.", MessageType.Info);
 
         using (new EditorGUILayout.HorizontalScope())
         {
@@ -26,13 +26,13 @@ public sealed class QRManualImageLoaderWindow : EditorWindow
 
             if (GUILayout.Button("Clear", GUILayout.Height(28f)))
             {
-                QRDebugImageStore.Clear();
+                MarkerDebugImageStore.Clear();
                 Repaint();
             }
         }
 
-        Texture2D texture = QRDebugImageStore.SourceTexture;
-        string sourceLabel = string.IsNullOrEmpty(QRDebugImageStore.SourceLabel) ? "No image loaded" : QRDebugImageStore.SourceLabel;
+        Texture2D texture = MarkerDebugImageStore.SourceTexture;
+        string sourceLabel = string.IsNullOrEmpty(MarkerDebugImageStore.SourceLabel) ? "No image loaded" : MarkerDebugImageStore.SourceLabel;
         EditorGUILayout.Space();
         EditorGUILayout.LabelField("Current Image", sourceLabel);
 
@@ -49,7 +49,7 @@ public sealed class QRManualImageLoaderWindow : EditorWindow
 
     void LoadImageFromDisk()
     {
-        string path = EditorUtility.OpenFilePanel("Load QR Debug Image", Application.dataPath, "png,jpg,jpeg");
+        string path = EditorUtility.OpenFilePanel("Load Marker Debug Image", Application.dataPath, "png,jpg,jpeg");
         if (string.IsNullOrEmpty(path))
             return;
 
@@ -64,9 +64,9 @@ public sealed class QRManualImageLoaderWindow : EditorWindow
             return;
         }
 
-        if (!QRDebugImageStore.TrySetImage(imageBytes, Path.GetFileName(path)))
+        if (!MarkerDebugImageStore.TrySetImage(imageBytes, Path.GetFileName(path)))
         {
-            Debug.LogError("QRManualImageLoaderWindow: Failed to load image.");
+            Debug.LogError("MarkerManualImageLoaderWindow: Failed to load image.");
             return;
         }
 
