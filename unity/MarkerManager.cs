@@ -3,6 +3,9 @@ using UnityEngine;
 
 public sealed class MarkerManager
 {
+    const float MarkerLifetimeSeconds = 3f;
+    const float PlacementRaycastPadding = 0.01f;
+
     readonly Dictionary<string, TrackedMarker> trackedMarkers = new Dictionary<string, TrackedMarker>();
     readonly Dictionary<string, GameObject> debugMarkers = new Dictionary<string, GameObject>();
     readonly HashSet<string> activeDebugMarkers = new HashSet<string>();
@@ -11,21 +14,20 @@ public sealed class MarkerManager
         Transform markerParent,
         Vector3 targetPosition,
         Vector3 markerScale,
-        MarkerDetection detection,
-        bool enableFall,
-        float fallSpawnHeight,
-        float fallAcceleration,
-        float maxFallSpeed)
+        MarkerDetection detection)
     {
-        PruneMissingMarkers();
+        string tagKey;
+        if (!TryGetTrackingKey(detection, out tagKey))
+            return;
 
-        string tagKey = GetTrackingKey(detection);
         string markerName = BuildMarkerName(detection, tagKey);
         Color markerColor = GetMarkerColor(detection, tagKey);
 
         TrackedMarker trackedMarker;
         GameObject marker;
-        bool isNewMarker = !trackedMarkers.TryGetValue(tagKey, out trackedMarker) || trackedMarker.Marker == null;
+        bool isNewMarker = !trackedMarkers.TryGetValue(tagKey, out trackedMarker)
+            || trackedMarker == null
+            || trackedMarker.Marker == null;
         if (isNewMarker)
         {
             marker = CreateMarker(
@@ -43,13 +45,9 @@ public sealed class MarkerManager
         }
 
         UpdateMarker(marker, markerParent, markerName, markerScale, markerColor);
-        UpdateFallController(
-            marker,
-            targetPosition,
-            enableFall,
-            fallSpawnHeight,
-            fallAcceleration,
-            maxFallSpeed);
+        marker.transform.rotation = Quaternion.identity;
+        marker.transform.position = targetPosition;
+        marker.transform.position = ResolvePlacementPosition(marker, targetPosition);
         trackedMarker.LastSeenTime = Time.time;
     }
 
@@ -124,15 +122,11 @@ public sealed class MarkerManager
         ClearDebugMarkers();
     }
 
-    public void PruneExpiredMarkers(float currentTime, float markerLifetimeSeconds)
+    public void PruneExpiredMarkers(float currentTime)
     {
         if (trackedMarkers.Count == 0)
             return;
 
-        if (markerLifetimeSeconds <= 0f || float.IsInfinity(markerLifetimeSeconds))
-            return;
-
-        float lifetime = Mathf.Max(0f, markerLifetimeSeconds);
         var expiredKeys = new List<string>();
         foreach (var entry in trackedMarkers)
         {
@@ -143,7 +137,7 @@ public sealed class MarkerManager
                 continue;
             }
 
-            if (currentTime - trackedMarker.LastSeenTime > lifetime)
+            if (currentTime - trackedMarker.LastSeenTime > MarkerLifetimeSeconds)
             {
                 Object.Destroy(trackedMarker.Marker);
                 expiredKeys.Add(entry.Key);
@@ -152,22 +146,6 @@ public sealed class MarkerManager
 
         for (int i = 0; i < expiredKeys.Count; i++)
             trackedMarkers.Remove(expiredKeys[i]);
-    }
-
-    void PruneMissingMarkers()
-    {
-        if (trackedMarkers.Count == 0)
-            return;
-
-        var missingKeys = new List<string>();
-        foreach (var entry in trackedMarkers)
-        {
-            if (entry.Value == null || entry.Value.Marker == null)
-                missingKeys.Add(entry.Key);
-        }
-
-        for (int i = 0; i < missingKeys.Count; i++)
-            trackedMarkers.Remove(missingKeys[i]);
     }
 
     GameObject CreateMarker(Transform markerParent, string markerName, Vector3 position, Vector3 scale, Color color)
@@ -189,14 +167,16 @@ public sealed class MarkerManager
             markerRenderer.material.color = color;
     }
 
-    public static string GetTrackingKey(MarkerDetection detection)
+    public static bool TryGetTrackingKey(MarkerDetection detection, out string tagKey)
     {
         if (!string.IsNullOrEmpty(detection.data))
-            return detection.data;
-        if (!string.IsNullOrEmpty(detection.decoded))
-            return detection.decoded;
+        {
+            tagKey = detection.data;
+            return true;
+        }
 
-        return "Marker";
+        tagKey = string.Empty;
+        return false;
     }
 
     static Color GetMarkerColor(MarkerDetection detection, string tagKey)
@@ -243,34 +223,41 @@ public sealed class MarkerManager
         return string.Format("Marker_{0}", label);
     }
 
-    static void UpdateFallController(
-        GameObject marker,
-        Vector3 targetPosition,
-        bool enableFall,
-        float fallSpawnHeight,
-        float fallAcceleration,
-        float maxFallSpeed)
+    static Vector3 ResolvePlacementPosition(GameObject marker, Vector3 startPosition)
     {
-        var fallController = marker.GetComponent<MarkerFallController>();
-        if (!enableFall)
+        Collider markerCollider = marker.GetComponent<Collider>();
+        if (markerCollider == null)
+            return startPosition;
+
+        float halfHeight = markerCollider.bounds.extents.y;
+        Vector3 rayOrigin = startPosition + Vector3.up * (halfHeight + PlacementRaycastPadding);
+        RaycastHit[] hits = Physics.RaycastAll(
+            rayOrigin,
+            Vector3.down,
+            Mathf.Infinity,
+            ~0,
+            QueryTriggerInteraction.Ignore);
+
+        bool hasHit = false;
+        float nearestDistance = float.PositiveInfinity;
+        float surfaceY = startPosition.y;
+        for (int i = 0; i < hits.Length; i++)
         {
-            if (fallController != null)
-                Object.Destroy(fallController);
+            if (hits[i].collider == null || hits[i].collider == markerCollider)
+                continue;
 
-            var markerRigidbody = marker.GetComponent<Rigidbody>();
-            if (markerRigidbody != null)
-                Object.Destroy(markerRigidbody);
-
-            marker.transform.position = targetPosition;
-            marker.transform.rotation = Quaternion.identity;
-            return;
+            if (hits[i].distance < nearestDistance)
+            {
+                nearestDistance = hits[i].distance;
+                surfaceY = hits[i].point.y;
+                hasHit = true;
+            }
         }
 
-        if (fallController == null)
-            fallController = marker.AddComponent<MarkerFallController>();
+        if (!hasHit)
+            return startPosition;
 
-        fallController.Configure(fallSpawnHeight, fallAcceleration, maxFallSpeed);
-        fallController.SetTarget(targetPosition, false);
+        return new Vector3(startPosition.x, surfaceY + halfHeight, startPosition.z);
     }
 
     sealed class TrackedMarker

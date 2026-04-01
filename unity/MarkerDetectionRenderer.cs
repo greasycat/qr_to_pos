@@ -1,7 +1,6 @@
 using Intel.RealSense;
 using System.Collections.Generic;
 using UnityEngine;
-using UnityEngine.Serialization;
 
 public class MarkerDetectionRenderer : MonoBehaviour
 {
@@ -21,14 +20,6 @@ public class MarkerDetectionRenderer : MonoBehaviour
     public Transform markerParent;
     public Vector3 markerScale = new Vector3(0.08f, 0.08f, 0.08f);
     public float markerVerticalOffset = 0.05f;
-
-    public bool enableMarkerFall = true;
-    public float markerFallSpawnHeight = 0.4f;
-    public float markerFallAcceleration = 4f;
-    public float markerMaxFallSpeed = 2.5f;
-
-    [FormerlySerializedAs("markerRespawnDelaySeconds")]
-    public float markerExpiryDelaySeconds = 5f;
 
     public bool showDebugBounds = true;
     public Color debugBoundsColor = Color.blue;
@@ -98,7 +89,7 @@ public class MarkerDetectionRenderer : MonoBehaviour
             RefreshMarkers();
 
         if (markerManager != null)
-            markerManager.PruneExpiredMarkers(Time.time, GetEffectiveMarkerExpiryDelaySeconds());
+            markerManager.PruneExpiredMarkers(Time.time);
     }
 
     async void OnDestroy()
@@ -200,19 +191,32 @@ public class MarkerDetectionRenderer : MonoBehaviour
             currentDetections = new List<MarkerDetection>(detections);
         }
 
-        var processedTagKeys = new HashSet<string>();
+        var latestDetectionsByTag = new Dictionary<string, MarkerDetection>(currentDetections.Count);
         for (int i = 0; i < currentDetections.Count; i++)
         {
             MarkerDetection detection = currentDetections[i];
-            string tagKey = MarkerManager.GetTrackingKey(detection);
-            if (!processedTagKeys.Add(tagKey))
+            string tagKey;
+            if (!MarkerManager.TryGetTrackingKey(detection, out tagKey))
             {
                 Debug.LogWarningFormat(
-                    "MarkerDetectionRenderer: Duplicate tag '{0}' detected in the same frame. Using the first detection only.",
-                    tagKey);
+                    "MarkerDetectionRenderer: Skipping detection without tag id. decoded='{0}'",
+                    GetDetectionLabel(detection));
                 continue;
             }
 
+            if (latestDetectionsByTag.ContainsKey(tagKey))
+            {
+                Debug.LogWarningFormat(
+                    "MarkerDetectionRenderer: Duplicate tag '{0}' detected in the same frame. Using the last detection.",
+                    tagKey);
+            }
+
+            latestDetectionsByTag[tagKey] = detection;
+        }
+
+        foreach (var entry in latestDetectionsByTag)
+        {
+            MarkerDetection detection = entry.Value;
             Vector3 worldPosition;
             bool isOutOfBounds;
             if (!terrainMapper.TryGetMarkerPosition(detection, markerVerticalOffset, out worldPosition, out isOutOfBounds))
@@ -232,11 +236,7 @@ public class MarkerDetectionRenderer : MonoBehaviour
                 markerParent,
                 worldPosition,
                 markerScale,
-                detection,
-                enableMarkerFall,
-                markerFallSpawnHeight,
-                markerFallAcceleration,
-                markerMaxFallSpeed);
+                detection);
         }
     }
 
@@ -253,16 +253,6 @@ public class MarkerDetectionRenderer : MonoBehaviour
             terrain,
             flipX,
             flipZ);
-    }
-
-    float GetEffectiveMarkerExpiryDelaySeconds()
-    {
-        if (markerExpiryDelaySeconds <= 0f)
-            return float.PositiveInfinity;
-
-        // Marker expiry should not outrun the websocket cadence or markers will be
-        // destroyed between valid detection responses and recreated from scratch.
-        return Mathf.Max(markerExpiryDelaySeconds, sendInterval * 2f);
     }
 
     void PumpLiveTexture()
