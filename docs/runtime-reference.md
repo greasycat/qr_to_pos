@@ -69,6 +69,7 @@ Supported WebSocket request styles:
 - `detect`
   Required field: `image` (base64-encoded image bytes)
   Used by the calibration/manual web tooling. No backend image flip is applied.
+  If `action` is omitted but `image` is present, the server treats the request as `detect`.
 - `detect_unity`
   Required field: `image` (base64-encoded image bytes)
   Used by the Unity live client. The backend applies the configured Unity image-action pipeline before AprilTag detection.
@@ -80,8 +81,10 @@ Supported WebSocket request styles:
 
 Response behavior:
 
-- `detect` returns `action`, `homography`, `detections`, `count`, and `processing_time`
+- `detect` and `detect_unity` return `action`, `homography`, `detections`, `count`, and `processing_time`
 - Each detection may include `data`, `bbox`, `confidence`, `decoded`, `homography`, `depth_bbox`, `depth_centroid`, and `depth_centroid_pct`
+- `update_corners` returns `action`, `color_corners`, `depth_corners`, `color_detected`, and `depth_detected`
+- `update_registration` returns `action`, `homography`, and `saved_path`
 - The detector backend is fixed to `apriltag`; QR detection is no longer supported
 - Invalid JSON or missing fields return JSON errors
 - The Unity live renderer treats `data` as the block identity, assigns a deterministic color per tag value, ignores duplicate same-ID detections after the first occurrence in a frame, and removes blocks for missing tags after the configured expiry delay
@@ -140,6 +143,8 @@ Flask routes exposed by `web/app.py`:
   Returns `assets/registration/1.png`
 - `/registration-depth-text`
   Returns `assets/registration/1.txt`
+- `/registration-coords`
+  Accepts `POST` JSON with `color_corners` and `depth_corners`, validates four `[x, y]` points for each, and writes `assets/registration/coords.yml`
 
 ## Practical Notes
 

@@ -22,7 +22,7 @@ Alternative entry points:
 - Launch both services: `uv run python launch.py` or `./run.sh`
 - WebSocket server only: `uv run python -m marker_to_pos.server`
 - Flask UI only: `uv run python web/app.py`
-- Run tests: `uv run pytest`
+- Run tests: `uv run python -m pytest`
 
 Default local endpoints:
 
@@ -37,7 +37,6 @@ Default local endpoints:
 ## Documentation
 
 - Detailed launcher, WebSocket, and Flask runtime reference: [docs/runtime-reference.md](docs/runtime-reference.md)
-- Project architecture sketch: [architecture.excalidraw](architecture.excalidraw)
 
 ## Repository Layout
 
