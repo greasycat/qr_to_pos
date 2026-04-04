@@ -2,6 +2,9 @@
 
 `marker-to-pos` detects AprilTags from camera images, exposes detections over WebSocket, provides a Flask calibration UI, and includes Unity-side scripts for consuming live marker updates.
 
+<img width="684" height="350" alt="image" src="https://github.com/user-attachments/assets/55daba90-4e72-4460-b0e0-f6d45aa96e7d" />
+
+
 ## Components
 
 - `marker_to_pos.server`: AprilTag WebSocket server, with RealSense-assisted registration and depth-aware detection data.
