@@ -1,148 +1,48 @@
-# marker_to_pos Launch and Server Notes
+# marker-to-pos
 
-This file documents the current startup flow implemented in `launch.py`, the AprilTag WebSocket server in `marker_to_pos/server.py`, and the Flask backend in `web/app.py`.
+`marker-to-pos` detects AprilTags from camera images, exposes detections over WebSocket, provides a Flask calibration UI, and includes Unity-side scripts for consuming live marker updates.
 
-## Launcher
+## Components
 
-Start the interactive launcher with:
+- `marker_to_pos.server`: AprilTag WebSocket server, with RealSense-assisted registration and depth-aware detection data.
+- `web/app.py`: Flask UI for calibration, detector configuration, and registration workflows.
+- `unity/`: Unity scripts for live marker visualization and scene integration on the remote hardware machine.
+
+## Quick Start
+
+Use `uv` for all Python setup and execution:
 
 ```bash
+uv sync
 uv run python launch.py
 ```
 
-`launch.py` does not accept CLI arguments. It always starts these two services:
+Alternative entry points:
 
-1. `AprilTag WebSocket Server`
-   Command:
-   ```bash
-   uv run python -m marker_to_pos.server
-   ```
-   Default endpoint: `ws://localhost:8765`
+- Launch both services: `uv run python launch.py` or `./run.sh`
+- WebSocket server only: `uv run python -m marker_to_pos.server`
+- Flask UI only: `uv run python web/app.py`
+- Run tests: `uv run pytest`
 
-2. `Web UI (Flask)`
-   Command:
-   ```bash
-   uv run python web/app.py
-   ```
-   Default endpoint: `http://localhost:5000`
+Default local endpoints:
 
-Launcher key bindings:
+- WebSocket server: `ws://localhost:8765`
+- Flask UI: `http://localhost:5000`
 
-- `j` or Down: move selection down
-- `k` or Up: move selection up
-- `s`: start selected service
-- `x`: stop selected service
-- `r`: restart selected service
-- `o`: open the Flask UI in a browser
-- `q` or `Ctrl+C`: quit and stop all services
+## Hardware Notes
 
-## WebSocket Server
+- The full stack expects the camera hardware and Unity client to run on the remote machine.
+- This local repo can still run non-hardware code paths, the Flask app, and mocked tests.
 
-Start directly with:
+## Documentation
 
-```bash
-uv run python -m marker_to_pos.server [--host HOST] [--port PORT] [--save-decoding-images]
-```
+- Detailed launcher, WebSocket, and Flask runtime reference: [docs/runtime-reference.md](docs/runtime-reference.md)
+- Project architecture sketch: [architecture.excalidraw](architecture.excalidraw)
 
-Implemented CLI options:
+## Repository Layout
 
-| Option | Default | Notes |
-| --- | --- | --- |
-| `--host` | `localhost` | Bind address for the WebSocket server |
-| `--port` | `8765` | Listening port |
-| `--save-decoding-images` | `off` | Save each detect request image plus response metadata to the temp debug folder |
-
-Internal defaults that are not exposed as CLI flags:
-
-- `max_size = 16 * 1024 * 1024` bytes for incoming WebSocket messages
-- `registration_path = assets/registration/homography.npy`
-- `debug_capture_dir = $TMPDIR/marker_to_pos/ws_debug`
-
-Supported WebSocket request styles:
-
-1. Binary message
-   Send raw image bytes such as PNG or JPEG. The server treats this as a legacy detection request with no backend flipping.
-
-2. JSON message
-   Send a JSON object with one of these actions:
-
-- `detect`
-  Required field: `image` (base64-encoded image bytes)
-  Used by the calibration/manual web tooling. No backend image flip is applied.
-- `detect_unity`
-  Required field: `image` (base64-encoded image bytes)
-  Used by the Unity live client. The backend applies the configured Unity image-action pipeline before AprilTag detection.
-- `update_corners`
-  Required fields: `color_image` (base64 image), `depth_text` (tab-separated depth text)
-- `update_registration`
-  Required fields: `color_corners`, `depth_corners`
-  Optional field: `save` (`true` by default)
-
-Response behavior:
-
-- `detect` returns `action`, `homography`, `detections`, `count`, and `processing_time`
-- Each detection may include `data`, `bbox`, `confidence`, `decoded`, `homography`, `depth_bbox`, `depth_centroid`, and `depth_centroid_pct`
-- The detector backend is fixed to `apriltag`; QR detection is no longer supported
-- Invalid JSON or missing fields return JSON errors
-- The Unity live renderer treats `data` as the block identity, assigns a deterministic color per tag value, ignores duplicate same-ID detections after the first occurrence in a frame, and removes blocks for missing tags after the configured expiry delay
-
-Debug capture settings live in [`assets/registration/config.yml`](/home/rongfei/WorkSpace/marker_to_pos/assets/registration/config.yml):
-
-```yaml
-ws_debug:
-  save_decoding_images: false
-  max_saved_images: 200
-ws_processing:
-  unity_image_actions:
-    - flip_h
-```
-
-Supported `unity_image_actions` entries:
-
-- `flip_h`: horizontal flip
-- `flip_v`: vertical flip
-- `r_180_plus`: rotate 90 degrees clockwise
-- `r_180_minus`: rotate 90 degrees counterclockwise
-
-When enabled, each detect request is saved under the temp debug folder as a timestamped directory containing:
-
-- `input.png`
-- `processed.png`
-- `response.json`
-- `metadata.yml`
-
-## Flask Backend
-
-Start directly with:
-
-```bash
-uv run python web/app.py [--host HOST] [--port PORT]
-```
-
-Implemented CLI options:
-
-| Option | Default | Notes |
-| --- | --- | --- |
-| `--host` | `127.0.0.1` | Bind address for the Flask app |
-| `--port` | `5000` | Listening port |
-
-Flask routes exposed by `web/app.py`:
-
-- `/`
-  Serves the test UI and injects `ws://localhost:8765` as the default WebSocket URL
-- `/test-image`
-  Returns `assets/fake_background_apriltag.png`
-- `/detector-config`
-  Returns `{"type":"apriltag"}` on `GET`; `POST` accepts only `apriltag`
-- `/registration-sample`
-  Returns JSON with URLs for registration sample assets
-- `/registration-color-image`
-  Returns `assets/registration/1.png`
-- `/registration-depth-text`
-  Returns `assets/registration/1.txt`
-
-## Practical Notes
-
-- If you use `launch.py`, the launcher starts both servers with their defaults only.
-- If you need custom host or port values, start `marker_to_pos.server` and `web/app.py` directly instead of using `launch.py`.
-- The Flask UI assumes the AprilTag WebSocket server is reachable at `ws://localhost:8765` unless changed in the browser UI.
+- `marker_to_pos/`: Python server, processing, detection, and registration modules
+- `web/`: Flask app and templates
+- `unity/`: Unity runtime and editor scripts
+- `tests/`: Local non-hardware regression coverage
+- `assets/`: Sample images, registration assets, and configuration

@@ -1,3 +1,4 @@
+2026-04-04: Shorten the README into a quick-start overview and move the detailed runtime and service instructions into docs/runtime-reference.md.
 2026-04-01: Clamp Unity tracked-marker movement to 5 world units per detection update before snapping onto the collider below, instead of teleporting directly to each new decode position.
 2026-04-01: Add a Unity renderer flag that skips tag-color tinting for prefab-spawned markers by default while keeping primitive cubes colorized.
 2026-04-01: Let Unity MarkerDetectionRenderer spawn per-tag prefabs from an index-to-prefab override list, falling back to the default cube when no override exists.
