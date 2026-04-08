@@ -265,7 +265,6 @@ public class MarkerDetectionRenderer : MonoBehaviour
                     detection,
                     GetConstructionPrefab(constructionAssignment),
                     removeColorWhenUsingPrefab,
-                    wallGroundRaycastCacheSeconds,
                     wallGroundMaxValidSurfaceY);
                 continue;
             }
@@ -277,7 +276,6 @@ public class MarkerDetectionRenderer : MonoBehaviour
                 detection,
                 null,
                 removeColorWhenUsingPrefab,
-                wallGroundRaycastCacheSeconds,
                 wallGroundMaxValidSurfaceY);
         }
 
@@ -506,15 +504,11 @@ public class MarkerDetectionRenderer : MonoBehaviour
 
         outOfBoundsConversionCount = 0;
         wallGroundPointCache.Clear();
-        if (markerManager != null)
-            markerManager.ClearGroundPlacementCache();
     }
 
     void HandleTerrainHeightmapChanged()
     {
         wallGroundPointCache.Clear();
-        if (markerManager != null)
-            markerManager.ClearGroundPlacementCache();
         detectionsDirty = true;
     }
 

@@ -4,10 +4,10 @@ using UnityEngine;
 public sealed class MarkerManager
 {
     internal const float MarkerLifetimeSeconds = 3f;
+    const float MarkerRespawnPlanarMovementThresholdSqr = 5f;
     const float PlacementRaycastPadding = 0.01f;
 
     readonly Dictionary<string, TrackedMarker> trackedMarkers = new Dictionary<string, TrackedMarker>();
-    readonly Dictionary<string, CachedMarkerGroundSurface> cachedMarkerGroundSurfaces = new Dictionary<string, CachedMarkerGroundSurface>();
     readonly Dictionary<string, GameObject> debugMarkers = new Dictionary<string, GameObject>();
     readonly HashSet<string> activeDebugMarkers = new HashSet<string>();
 
@@ -28,7 +28,6 @@ public sealed class MarkerManager
         MarkerDetection detection,
         GameObject markerPrefab,
         bool removeColorWhenUsingPrefab,
-        float groundRaycastCacheSeconds,
         float maxValidSurfaceY)
     {
         string tagKey;
@@ -39,40 +38,67 @@ public sealed class MarkerManager
         Color markerColor = GetMarkerColor(detection, tagKey);
 
         TrackedMarker trackedMarker;
-        GameObject marker;
         bool usesPrefab = markerPrefab != null;
-        bool applyColor = !usesPrefab || !removeColorWhenUsingPrefab;
+        bool nextApplyColor = !usesPrefab || !removeColorWhenUsingPrefab;
         bool isNewMarker = !trackedMarkers.TryGetValue(tagKey, out trackedMarker)
             || trackedMarker == null
             || trackedMarker.Marker == null;
+        bool sourceChanged = !isNewMarker && trackedMarker.SourcePrefab != markerPrefab;
+        GameObject marker = isNewMarker ? null : trackedMarker.Marker;
+
+        if (marker != null)
+        {
+            bool currentApplyColor = !trackedMarker.UsesPrefab || !removeColorWhenUsingPrefab;
+            UpdateMarker(marker, markerParent, markerName, markerScale, markerColor, currentApplyColor);
+            marker.transform.rotation = Quaternion.identity;
+        }
+
+        Vector3 groundedPosition;
+        bool hasGroundedPosition = marker != null
+            && TryResolveGroundedMarkerPosition(marker, targetPosition, maxValidSurfaceY, out groundedPosition);
+        if (!hasGroundedPosition)
+            groundedPosition = targetPosition;
+
         if (isNewMarker)
         {
             marker = CreateMarker(
                 markerParent,
                 markerName,
-                targetPosition,
+                groundedPosition,
                 markerScale,
                 markerColor,
                 markerPrefab,
-                applyColor);
-            trackedMarker = new TrackedMarker(marker, usesPrefab);
+                nextApplyColor);
+            if (TryResolveGroundedMarkerPosition(marker, targetPosition, maxValidSurfaceY, out groundedPosition))
+                marker.transform.position = groundedPosition;
+
+            trackedMarker = new TrackedMarker(marker, usesPrefab, markerPrefab);
             trackedMarkers[tagKey] = trackedMarker;
-        }
-        else
-        {
-            marker = trackedMarker.Marker;
+            trackedMarker.LastSeenTime = Time.time;
+            return marker.transform.position;
         }
 
-        applyColor = !trackedMarker.UsesPrefab || !removeColorWhenUsingPrefab;
-        UpdateMarker(marker, markerParent, markerName, markerScale, markerColor, applyColor);
-        marker.transform.rotation = Quaternion.identity;
-        marker.transform.position = targetPosition;
-        marker.transform.position = ResolvePlacementPosition(
-            marker,
-            tagKey,
-            targetPosition,
-            groundRaycastCacheSeconds,
-            maxValidSurfaceY);
+        if (!sourceChanged && !ShouldRespawnMarker(marker.transform.position, groundedPosition))
+        {
+            trackedMarker.LastSeenTime = Time.time;
+            return marker.transform.position;
+        }
+
+        if (marker != null)
+            Object.Destroy(marker);
+
+        marker = CreateMarker(
+            markerParent,
+            markerName,
+            groundedPosition,
+            markerScale,
+            markerColor,
+            markerPrefab,
+            nextApplyColor);
+        if (TryResolveGroundedMarkerPosition(marker, targetPosition, maxValidSurfaceY, out groundedPosition))
+            marker.transform.position = groundedPosition;
+        trackedMarker = new TrackedMarker(marker, usesPrefab, markerPrefab);
+        trackedMarkers[tagKey] = trackedMarker;
         trackedMarker.LastSeenTime = Time.time;
         return marker.transform.position;
     }
@@ -128,7 +154,6 @@ public sealed class MarkerManager
         }
 
         trackedMarkers.Clear();
-        cachedMarkerGroundSurfaces.Clear();
     }
 
     public void ClearDebugMarkers()
@@ -147,11 +172,6 @@ public sealed class MarkerManager
     {
         ClearMarkers();
         ClearDebugMarkers();
-    }
-
-    public void ClearGroundPlacementCache()
-    {
-        cachedMarkerGroundSurfaces.Clear();
     }
 
     public void PruneExpiredMarkers(float currentTime)
@@ -177,10 +197,7 @@ public sealed class MarkerManager
         }
 
         for (int i = 0; i < expiredKeys.Count; i++)
-        {
             trackedMarkers.Remove(expiredKeys[i]);
-            cachedMarkerGroundSurfaces.Remove(expiredKeys[i]);
-        }
     }
 
     GameObject CreateMarker(
@@ -270,29 +287,19 @@ public sealed class MarkerManager
         return string.Format("Marker_{0}", label);
     }
 
-    Vector3 ResolvePlacementPosition(
+    bool TryResolveGroundedMarkerPosition(
         GameObject marker,
-        string tagKey,
         Vector3 startPosition,
-        float cacheDurationSeconds,
-        float maxValidSurfaceY)
+        float maxValidSurfaceY,
+        out Vector3 groundedPosition)
     {
+        groundedPosition = startPosition;
         Bounds markerBounds;
         if (!TryGetObjectBounds(marker, out markerBounds))
-            return startPosition;
+            return false;
 
         float markerBottomOffset = marker.transform.position.y - markerBounds.min.y;
         float markerTopOffset = markerBounds.max.y - marker.transform.position.y;
-        float currentTime = Time.time;
-        float cacheDuration = Mathf.Max(0f, cacheDurationSeconds);
-        bool hasRecentCache = false;
-
-        CachedMarkerGroundSurface cachedSurface;
-        if (cachedMarkerGroundSurfaces.TryGetValue(tagKey, out cachedSurface))
-        {
-            cachedSurface.LastSeenTime = currentTime;
-            hasRecentCache = currentTime - cachedSurface.LastRaycastTime <= cacheDuration;
-        }
 
         float surfaceY;
         Vector3 resolvedPosition;
@@ -306,16 +313,12 @@ public sealed class MarkerManager
         {
             if (IsValidGroundSurfaceY(surfaceY, startPosition.y, maxValidSurfaceY))
             {
-                float cachedSurfaceY = hasRecentCache ? Mathf.Min(surfaceY, cachedSurface.SurfaceY) : surfaceY;
-                cachedMarkerGroundSurfaces[tagKey] = new CachedMarkerGroundSurface(cachedSurfaceY, currentTime);
-                return new Vector3(startPosition.x, cachedSurfaceY + markerBottomOffset, startPosition.z);
+                groundedPosition = resolvedPosition;
+                return true;
             }
         }
 
-        if (cachedSurface != null)
-            return new Vector3(startPosition.x, cachedSurface.SurfaceY + markerBottomOffset, startPosition.z);
-
-        return startPosition;
+        return false;
     }
 
     static bool IsValidGroundSurfaceY(float surfaceY, float referenceY, float maxPositiveDeltaY)
@@ -323,6 +326,14 @@ public sealed class MarkerManager
         return !float.IsNaN(surfaceY)
             && !float.IsInfinity(surfaceY)
             && surfaceY - referenceY <= maxPositiveDeltaY;
+    }
+
+    static bool ShouldRespawnMarker(Vector3 currentPosition, Vector3 groundedPosition)
+    {
+        Vector2 planarDelta = new Vector2(
+            groundedPosition.x - currentPosition.x,
+            groundedPosition.z - currentPosition.z);
+        return planarDelta.sqrMagnitude > MarkerRespawnPlanarMovementThresholdSqr;
     }
 
     static Vector3 ResolvePlacementPosition(
@@ -447,27 +458,15 @@ public sealed class MarkerManager
     {
         public readonly GameObject Marker;
         public readonly bool UsesPrefab;
+        public readonly GameObject SourcePrefab;
         public float LastSeenTime;
 
-        public TrackedMarker(GameObject marker, bool usesPrefab)
+        public TrackedMarker(GameObject marker, bool usesPrefab, GameObject sourcePrefab)
         {
             Marker = marker;
             UsesPrefab = usesPrefab;
+            SourcePrefab = sourcePrefab;
             LastSeenTime = Time.time;
-        }
-    }
-
-    sealed class CachedMarkerGroundSurface
-    {
-        public readonly float SurfaceY;
-        public readonly float LastRaycastTime;
-        public float LastSeenTime;
-
-        public CachedMarkerGroundSurface(float surfaceY, float currentTime)
-        {
-            SurfaceY = surfaceY;
-            LastRaycastTime = currentTime;
-            LastSeenTime = currentTime;
         }
     }
 }

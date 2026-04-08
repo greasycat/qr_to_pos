@@ -1,3 +1,4 @@
+2026-04-08: Simplify Unity tracked markers to raycast a grounded target from the current frame, recreate the marker directly at that grounded position, and skip respawning unless the horizontal X/Z move exceeds a squared threshold of 5 or the prefab source changes.
 2026-04-08: Tighten Unity grounding validation to reject raycast results only when they jump more than 150 units upward from the incoming marker point, instead of using an absolute world-space Y cap.
 2026-04-08: Make Unity wall and tracked-marker grounding caches keep the lowest recent valid raycast Y within the shared 150ms window, so short-lived high hits can no longer raise cached placement.
 2026-04-08: Apply the same Unity Y<=150 grounding filter to tracked marker placement, so cached marker ground hits reject obviously bad high collider surfaces just like walls do.
