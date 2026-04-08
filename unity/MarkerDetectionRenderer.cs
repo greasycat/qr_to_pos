@@ -249,7 +249,16 @@ public class MarkerDetectionRenderer : MonoBehaviour
                 if (constructionAssignment.Binding.choice == MarkerConstructionChoice.Wall)
                 {
                     if (constructionManager != null)
-                        constructionManager.TrackWallPoint(worldPosition, detection, constructionAssignment);
+                    {
+                        Vector3 placedMarkerPosition = markerManager.TrackMarker(
+                            markerParent,
+                            worldPosition,
+                            markerScale,
+                            detection,
+                            null,
+                            removeColorWhenUsingPrefab);
+                        constructionManager.TrackWallPoint(placedMarkerPosition, detection, constructionAssignment);
+                    }
                     continue;
                 }
 

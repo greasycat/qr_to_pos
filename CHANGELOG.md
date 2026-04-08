@@ -1,3 +1,4 @@
+2026-04-08: Make Unity wall control points use each marker's final raycast-snapped placement position so procedural wall segments inherit the same grounded Y as their source markers.
 2026-04-08: Replace Unity wall prefab segments with procedural prism meshes built directly from marker pairs, wall thickness, and wall height, anchored to the higher marker Y to avoid wall flipping.
 2026-04-08: Stabilize Unity wall segment elevation by anchoring each wall to the higher of its two marker Y positions instead of averaging endpoint heights.
 2026-04-08: Remove the legacy Unity per-tag prefab override list so prefab and wall behavior are configured only through the new construction bindings inspector path.

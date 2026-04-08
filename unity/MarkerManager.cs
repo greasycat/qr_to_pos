@@ -11,7 +11,7 @@ public sealed class MarkerManager
     readonly Dictionary<string, GameObject> debugMarkers = new Dictionary<string, GameObject>();
     readonly HashSet<string> activeDebugMarkers = new HashSet<string>();
 
-    public void TrackMarker(
+    public Vector3 TrackMarker(
         Transform markerParent,
         Vector3 targetPosition,
         Vector3 markerScale,
@@ -21,7 +21,7 @@ public sealed class MarkerManager
     {
         string tagKey;
         if (!TryGetTrackingKey(detection, out tagKey))
-            return;
+            return targetPosition;
 
         string markerName = BuildMarkerName(detection, tagKey);
         Color markerColor = GetMarkerColor(detection, tagKey);
@@ -57,6 +57,7 @@ public sealed class MarkerManager
         marker.transform.position = nextTargetPosition;
         marker.transform.position = ResolvePlacementPosition(marker, nextTargetPosition);
         trackedMarker.LastSeenTime = Time.time;
+        return marker.transform.position;
     }
 
     public void BeginDebugMarkerRefresh()
