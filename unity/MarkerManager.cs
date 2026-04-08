@@ -7,6 +7,7 @@ public sealed class MarkerManager
     const float PlacementRaycastPadding = 0.01f;
 
     readonly Dictionary<string, TrackedMarker> trackedMarkers = new Dictionary<string, TrackedMarker>();
+    readonly Dictionary<string, CachedMarkerGroundSurface> cachedMarkerGroundSurfaces = new Dictionary<string, CachedMarkerGroundSurface>();
     readonly Dictionary<string, GameObject> debugMarkers = new Dictionary<string, GameObject>();
     readonly HashSet<string> activeDebugMarkers = new HashSet<string>();
 
@@ -26,7 +27,8 @@ public sealed class MarkerManager
         Vector3 markerScale,
         MarkerDetection detection,
         GameObject markerPrefab,
-        bool removeColorWhenUsingPrefab)
+        bool removeColorWhenUsingPrefab,
+        float groundRaycastCacheSeconds)
     {
         string tagKey;
         if (!TryGetTrackingKey(detection, out tagKey))
@@ -64,7 +66,7 @@ public sealed class MarkerManager
         UpdateMarker(marker, markerParent, markerName, markerScale, markerColor, applyColor);
         marker.transform.rotation = Quaternion.identity;
         marker.transform.position = targetPosition;
-        marker.transform.position = ResolvePlacementPosition(marker, targetPosition);
+        marker.transform.position = ResolvePlacementPosition(marker, tagKey, targetPosition, groundRaycastCacheSeconds);
         trackedMarker.LastSeenTime = Time.time;
         return marker.transform.position;
     }
@@ -120,6 +122,7 @@ public sealed class MarkerManager
         }
 
         trackedMarkers.Clear();
+        cachedMarkerGroundSurfaces.Clear();
     }
 
     public void ClearDebugMarkers()
@@ -138,6 +141,11 @@ public sealed class MarkerManager
     {
         ClearMarkers();
         ClearDebugMarkers();
+    }
+
+    public void ClearGroundPlacementCache()
+    {
+        cachedMarkerGroundSurfaces.Clear();
     }
 
     public void PruneExpiredMarkers(float currentTime)
@@ -163,7 +171,10 @@ public sealed class MarkerManager
         }
 
         for (int i = 0; i < expiredKeys.Count; i++)
+        {
             trackedMarkers.Remove(expiredKeys[i]);
+            cachedMarkerGroundSurfaces.Remove(expiredKeys[i]);
+        }
     }
 
     GameObject CreateMarker(
@@ -253,7 +264,7 @@ public sealed class MarkerManager
         return string.Format("Marker_{0}", label);
     }
 
-    static Vector3 ResolvePlacementPosition(GameObject marker, Vector3 startPosition)
+    Vector3 ResolvePlacementPosition(GameObject marker, string tagKey, Vector3 startPosition, float cacheDurationSeconds)
     {
         Bounds markerBounds;
         if (!TryGetObjectBounds(marker, out markerBounds))
@@ -261,8 +272,32 @@ public sealed class MarkerManager
 
         float markerBottomOffset = marker.transform.position.y - markerBounds.min.y;
         float markerTopOffset = markerBounds.max.y - marker.transform.position.y;
+        float currentTime = Time.time;
+        float cacheDuration = Mathf.Max(0f, cacheDurationSeconds);
+
+        CachedMarkerGroundSurface cachedSurface;
+        if (cachedMarkerGroundSurfaces.TryGetValue(tagKey, out cachedSurface))
+        {
+            cachedSurface.LastSeenTime = currentTime;
+            if (currentTime - cachedSurface.LastRaycastTime <= cacheDuration)
+                return new Vector3(startPosition.x, cachedSurface.SurfaceY + markerBottomOffset, startPosition.z);
+        }
+
         float surfaceY;
-        return ResolvePlacementPosition(startPosition, markerBottomOffset, markerTopOffset, marker.transform, out surfaceY);
+        Vector3 resolvedPosition;
+        if (TryResolvePlacementPosition(
+            startPosition,
+            markerBottomOffset,
+            markerTopOffset,
+            marker.transform,
+            out resolvedPosition,
+            out surfaceY))
+        {
+            cachedMarkerGroundSurfaces[tagKey] = new CachedMarkerGroundSurface(surfaceY, currentTime);
+            return resolvedPosition;
+        }
+
+        return startPosition;
     }
 
     static Vector3 ResolvePlacementPosition(
@@ -270,6 +305,29 @@ public sealed class MarkerManager
         float markerBottomOffset,
         float markerTopOffset,
         Transform ignoredRoot,
+        out float surfaceY)
+    {
+        Vector3 resolvedPosition;
+        if (TryResolvePlacementPosition(
+            startPosition,
+            markerBottomOffset,
+            markerTopOffset,
+            ignoredRoot,
+            out resolvedPosition,
+            out surfaceY))
+        {
+            return resolvedPosition;
+        }
+
+        return startPosition;
+    }
+
+    static bool TryResolvePlacementPosition(
+        Vector3 startPosition,
+        float markerBottomOffset,
+        float markerTopOffset,
+        Transform ignoredRoot,
+        out Vector3 resolvedPosition,
         out float surfaceY)
     {
         Vector3 rayOrigin = startPosition + Vector3.up * (markerTopOffset + PlacementRaycastPadding);
@@ -283,6 +341,7 @@ public sealed class MarkerManager
         bool hasHit = false;
         float nearestDistance = float.PositiveInfinity;
         surfaceY = startPosition.y;
+        resolvedPosition = startPosition;
         for (int i = 0; i < hits.Length; i++)
         {
             if (hits[i].collider == null)
@@ -300,9 +359,10 @@ public sealed class MarkerManager
         }
 
         if (!hasHit)
-            return startPosition;
+            return false;
 
-        return new Vector3(startPosition.x, surfaceY + markerBottomOffset, startPosition.z);
+        resolvedPosition = new Vector3(startPosition.x, surfaceY + markerBottomOffset, startPosition.z);
+        return true;
     }
 
     static Vector3 GetWorldAxisScale(Transform markerParent, Vector3 localScale)
@@ -369,6 +429,20 @@ public sealed class MarkerManager
             Marker = marker;
             UsesPrefab = usesPrefab;
             LastSeenTime = Time.time;
+        }
+    }
+
+    sealed class CachedMarkerGroundSurface
+    {
+        public readonly float SurfaceY;
+        public readonly float LastRaycastTime;
+        public float LastSeenTime;
+
+        public CachedMarkerGroundSurface(float surfaceY, float currentTime)
+        {
+            SurfaceY = surfaceY;
+            LastRaycastTime = currentTime;
+            LastSeenTime = currentTime;
         }
     }
 }
