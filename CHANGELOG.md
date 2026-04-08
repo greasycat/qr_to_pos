@@ -1,3 +1,4 @@
+2026-04-08: Defer initial Unity wall creation by one frame using grounded wall-point snapshots and a short per-tag raycast cache, so new walls spawn from stable captured positions instead of snapping down from fresh raycasts every refresh.
 2026-04-08: Ground Unity wall control points with a direct cube-placement raycast instead of spawning visible helper markers, so walls stay hidden until they have a grounded base Y and no longer inherit marker-center height.
 2026-04-08: Update Unity procedural walls to use a shared unit prism mesh with transform-based position, rotation, and scale updates instead of rebuilding wall vertices every refresh.
 2026-04-08: Make Unity wall markers and procedural wall points snap immediately to their grounded placement instead of inheriting the tracked-marker movement smoothing.

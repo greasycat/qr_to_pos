@@ -37,6 +37,49 @@ public sealed class MarkerConstructionManager
         trackedPoint.LastSeenTime = Time.time;
     }
 
+    public void SpawnWallFromSnapshot(Transform markerParent, List<MarkerConstructionPointSnapshot> pointSnapshots, float seenTime)
+    {
+        if (pointSnapshots == null || pointSnapshots.Count < 2)
+            return;
+
+        for (int i = 0; i < pointSnapshots.Count; i++)
+        {
+            MarkerConstructionPointSnapshot snapshot = pointSnapshots[i];
+            if (snapshot == null || snapshot.Binding == null)
+                continue;
+
+            string pointKey = string.Format("{0}:{1}", snapshot.BindingKey, snapshot.TagKey);
+            TrackedWallPoint trackedPoint;
+            if (!trackedWallPoints.TryGetValue(pointKey, out trackedPoint))
+            {
+                trackedPoint = new TrackedWallPoint();
+                trackedWallPoints[pointKey] = trackedPoint;
+            }
+
+            trackedPoint.BindingKey = snapshot.BindingKey;
+            trackedPoint.DisplayName = snapshot.DisplayName;
+            trackedPoint.TagKey = snapshot.TagKey;
+            trackedPoint.Order = snapshot.Order;
+            trackedPoint.Binding = snapshot.Binding;
+            trackedPoint.Position = snapshot.Position;
+            trackedPoint.LastSeenTime = seenTime;
+        }
+
+        RebuildWalls(markerParent);
+    }
+
+    public bool HasWallConstruction(string bindingKey)
+    {
+        if (string.IsNullOrEmpty(bindingKey))
+            return false;
+
+        WallConstructionState wallState;
+        if (!wallStates.TryGetValue(bindingKey, out wallState) || wallState == null)
+            return false;
+
+        return wallState.Segments.Count > 0;
+    }
+
     public void RefreshTrackedConstructions(Transform markerParent)
     {
         RebuildWalls(markerParent);

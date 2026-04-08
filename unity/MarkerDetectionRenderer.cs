@@ -1,4 +1,5 @@
 using Intel.RealSense;
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -20,6 +21,7 @@ public class MarkerDetectionRenderer : MonoBehaviour
     public Transform markerParent;
     public Vector3 markerScale = new Vector3(0.08f, 0.08f, 0.08f);
     public float markerVerticalOffset = 0.05f;
+    public float wallGroundRaycastCacheSeconds = 0.15f;
     public List<MarkerConstructionBinding> markerConstructionBindings = new List<MarkerConstructionBinding>();
     public bool removeColorWhenUsingPrefab = true;
 
@@ -43,6 +45,8 @@ public class MarkerDetectionRenderer : MonoBehaviour
     MarkerConstructionManager constructionManager;
     Texture2D currentSourceTexture;
     int lastDebugTextureVersion = -1;
+    readonly Dictionary<string, CachedWallGroundPoint> wallGroundPointCache = new Dictionary<string, CachedWallGroundPoint>();
+    readonly Dictionary<string, Coroutine> pendingWallSpawnCoroutines = new Dictionary<string, Coroutine>();
 
     bool detectionsDirty;
     bool liveFrameSourceInitialized;
@@ -97,6 +101,8 @@ public class MarkerDetectionRenderer : MonoBehaviour
 
         if (constructionManager != null)
             constructionManager.PruneExpiredConstructions(markerParent, Time.time);
+
+        PruneWallGroundPointCache(Time.time);
     }
 
     async void OnDestroy()
@@ -122,6 +128,8 @@ public class MarkerDetectionRenderer : MonoBehaviour
         }
 
         TerrainEvents.OnHeightmapChanged -= HandleTerrainHeightmapChanged;
+        StopPendingWallSpawnCoroutines();
+        wallGroundPointCache.Clear();
 
         if (markerManager != null)
             markerManager.ClearAll();
@@ -202,6 +210,7 @@ public class MarkerDetectionRenderer : MonoBehaviour
         }
 
         Dictionary<int, MarkerConstructionAssignment> constructionLookup = BuildConstructionLookup();
+        var pendingWallSnapshots = new Dictionary<string, List<MarkerConstructionPointSnapshot>>();
         var latestDetectionsByTag = new Dictionary<string, MarkerDetection>(currentDetections.Count);
         for (int i = 0; i < currentDetections.Count; i++)
         {
@@ -248,19 +257,7 @@ public class MarkerDetectionRenderer : MonoBehaviour
             {
                 if (constructionAssignment.Binding.choice == MarkerConstructionChoice.Wall)
                 {
-                    if (constructionManager != null)
-                    {
-                        float groundedSurfaceY;
-                        MarkerManager.ResolveGroundedCubePosition(
-                            markerParent,
-                            worldPosition,
-                            markerScale,
-                            out groundedSurfaceY);
-                        constructionManager.TrackWallPoint(
-                            new Vector3(worldPosition.x, groundedSurfaceY, worldPosition.z),
-                            detection,
-                            constructionAssignment);
-                    }
+                    TrackOrQueueWallPoint(detection, constructionAssignment, worldPosition, pendingWallSnapshots);
                     continue;
                 }
 
@@ -283,8 +280,189 @@ public class MarkerDetectionRenderer : MonoBehaviour
                 removeColorWhenUsingPrefab);
         }
 
+        SchedulePendingWallSpawns(pendingWallSnapshots);
         if (constructionManager != null)
             constructionManager.RefreshTrackedConstructions(markerParent);
+    }
+
+    void TrackOrQueueWallPoint(
+        MarkerDetection detection,
+        MarkerConstructionAssignment constructionAssignment,
+        Vector3 worldPosition,
+        Dictionary<string, List<MarkerConstructionPointSnapshot>> pendingWallSnapshots)
+    {
+        if (constructionManager == null || constructionAssignment == null || constructionAssignment.Binding == null)
+            return;
+
+        MarkerConstructionPointSnapshot wallPointSnapshot;
+        if (!TryCreateWallPointSnapshot(detection, constructionAssignment, worldPosition, out wallPointSnapshot))
+            return;
+
+        if (constructionManager.HasWallConstruction(constructionAssignment.BindingKey))
+        {
+            constructionManager.TrackWallPoint(
+                wallPointSnapshot.Position,
+                detection,
+                constructionAssignment);
+            return;
+        }
+
+        List<MarkerConstructionPointSnapshot> snapshots;
+        if (!pendingWallSnapshots.TryGetValue(constructionAssignment.BindingKey, out snapshots))
+        {
+            snapshots = new List<MarkerConstructionPointSnapshot>();
+            pendingWallSnapshots[constructionAssignment.BindingKey] = snapshots;
+        }
+
+        snapshots.Add(wallPointSnapshot);
+    }
+
+    bool TryCreateWallPointSnapshot(
+        MarkerDetection detection,
+        MarkerConstructionAssignment constructionAssignment,
+        Vector3 worldPosition,
+        out MarkerConstructionPointSnapshot wallPointSnapshot)
+    {
+        wallPointSnapshot = null;
+        if (constructionAssignment == null || constructionAssignment.Binding == null)
+            return false;
+
+        string tagKey;
+        if (!MarkerManager.TryGetTrackingKey(detection, out tagKey))
+            return false;
+
+        Vector3 groundedPosition = GetCachedGroundedWallPosition(tagKey, worldPosition);
+        wallPointSnapshot = new MarkerConstructionPointSnapshot(
+            constructionAssignment.BindingKey,
+            constructionAssignment.Binding,
+            constructionAssignment.DisplayName,
+            tagKey,
+            constructionAssignment.Order,
+            groundedPosition);
+        return true;
+    }
+
+    Vector3 GetCachedGroundedWallPosition(string tagKey, Vector3 worldPosition)
+    {
+        float currentTime = Time.time;
+        float cacheDuration = Mathf.Max(0f, wallGroundRaycastCacheSeconds);
+
+        CachedWallGroundPoint cachedPoint;
+        if (wallGroundPointCache.TryGetValue(tagKey, out cachedPoint))
+        {
+            cachedPoint.LastSeenTime = currentTime;
+            if (currentTime - cachedPoint.LastRaycastTime <= cacheDuration)
+                return cachedPoint.Position;
+        }
+
+        float groundedSurfaceY;
+        MarkerManager.ResolveGroundedCubePosition(
+            markerParent,
+            worldPosition,
+            markerScale,
+            out groundedSurfaceY);
+
+        Vector3 groundedPosition = new Vector3(worldPosition.x, groundedSurfaceY, worldPosition.z);
+        wallGroundPointCache[tagKey] = new CachedWallGroundPoint(groundedPosition, currentTime);
+        return groundedPosition;
+    }
+
+    void SchedulePendingWallSpawns(Dictionary<string, List<MarkerConstructionPointSnapshot>> pendingWallSnapshots)
+    {
+        if (constructionManager == null || pendingWallSnapshots == null || pendingWallSnapshots.Count == 0)
+            return;
+
+        foreach (var entry in pendingWallSnapshots)
+        {
+            if (pendingWallSpawnCoroutines.ContainsKey(entry.Key) || constructionManager.HasWallConstruction(entry.Key))
+                continue;
+
+            List<MarkerConstructionPointSnapshot> snapshots = entry.Value;
+            if (!HasCompleteWallSnapshot(snapshots))
+                continue;
+
+            Coroutine pendingCoroutine = StartCoroutine(SpawnWallFromSnapshotNextFrame(entry.Key, CloneWallSnapshots(snapshots)));
+            pendingWallSpawnCoroutines[entry.Key] = pendingCoroutine;
+        }
+    }
+
+    bool HasCompleteWallSnapshot(List<MarkerConstructionPointSnapshot> snapshots)
+    {
+        if (snapshots == null || snapshots.Count < 2)
+            return false;
+
+        snapshots.Sort(CompareWallSnapshots);
+        MarkerConstructionBinding binding = snapshots[0].Binding;
+        if (binding == null || binding.markerIndexes == null)
+            return false;
+
+        return snapshots.Count == binding.markerIndexes.Count;
+    }
+
+    IEnumerator SpawnWallFromSnapshotNextFrame(string bindingKey, List<MarkerConstructionPointSnapshot> pointSnapshots)
+    {
+        yield return new WaitForEndOfFrame();
+
+        pendingWallSpawnCoroutines.Remove(bindingKey);
+        if (constructionManager == null || constructionManager.HasWallConstruction(bindingKey))
+            yield break;
+
+        constructionManager.SpawnWallFromSnapshot(markerParent, pointSnapshots, Time.time);
+    }
+
+    void StopPendingWallSpawnCoroutines()
+    {
+        foreach (var entry in pendingWallSpawnCoroutines)
+        {
+            if (entry.Value != null)
+                StopCoroutine(entry.Value);
+        }
+
+        pendingWallSpawnCoroutines.Clear();
+    }
+
+    void PruneWallGroundPointCache(float currentTime)
+    {
+        if (wallGroundPointCache.Count == 0)
+            return;
+
+        var expiredKeys = new List<string>();
+        foreach (var entry in wallGroundPointCache)
+        {
+            if (entry.Value == null || currentTime - entry.Value.LastSeenTime > MarkerManager.MarkerLifetimeSeconds)
+                expiredKeys.Add(entry.Key);
+        }
+
+        for (int i = 0; i < expiredKeys.Count; i++)
+            wallGroundPointCache.Remove(expiredKeys[i]);
+    }
+
+    static int CompareWallSnapshots(MarkerConstructionPointSnapshot left, MarkerConstructionPointSnapshot right)
+    {
+        int orderComparison = left.Order.CompareTo(right.Order);
+        if (orderComparison != 0)
+            return orderComparison;
+
+        return string.CompareOrdinal(left.TagKey, right.TagKey);
+    }
+
+    static List<MarkerConstructionPointSnapshot> CloneWallSnapshots(List<MarkerConstructionPointSnapshot> snapshots)
+    {
+        var clones = new List<MarkerConstructionPointSnapshot>(snapshots.Count);
+        for (int i = 0; i < snapshots.Count; i++)
+        {
+            MarkerConstructionPointSnapshot snapshot = snapshots[i];
+            clones.Add(new MarkerConstructionPointSnapshot(
+                snapshot.BindingKey,
+                snapshot.Binding,
+                snapshot.DisplayName,
+                snapshot.TagKey,
+                snapshot.Order,
+                snapshot.Position));
+        }
+
+        clones.Sort(CompareWallSnapshots);
+        return clones;
     }
 
     void SpawnDebugBounds(MarkerTerrainMapper terrainMapper)
@@ -420,10 +598,13 @@ public class MarkerDetectionRenderer : MonoBehaviour
         }
 
         outOfBoundsConversionCount = 0;
+        StopPendingWallSpawnCoroutines();
+        wallGroundPointCache.Clear();
     }
 
     void HandleTerrainHeightmapChanged()
     {
+        wallGroundPointCache.Clear();
         detectionsDirty = true;
     }
 
@@ -448,5 +629,19 @@ public class MarkerDetectionRenderer : MonoBehaviour
             "({0:F4}, {1:F4})",
             detection.depth_centroid_pct[0],
             detection.depth_centroid_pct[1]);
+    }
+
+    sealed class CachedWallGroundPoint
+    {
+        public readonly Vector3 Position;
+        public readonly float LastRaycastTime;
+        public float LastSeenTime;
+
+        public CachedWallGroundPoint(Vector3 position, float currentTime)
+        {
+            Position = position;
+            LastRaycastTime = currentTime;
+            LastSeenTime = currentTime;
+        }
     }
 }
