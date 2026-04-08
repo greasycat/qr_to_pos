@@ -46,6 +46,7 @@ public class MarkerDetectionRenderer : MonoBehaviour
     Texture2D currentSourceTexture;
     int lastDebugTextureVersion = -1;
     readonly Dictionary<string, CachedWallGroundPoint> wallGroundPointCache = new Dictionary<string, CachedWallGroundPoint>();
+    readonly Dictionary<string, PendingWallPointSnapshot> pendingWallPointSnapshots = new Dictionary<string, PendingWallPointSnapshot>();
     readonly Dictionary<string, Coroutine> pendingWallSpawnCoroutines = new Dictionary<string, Coroutine>();
 
     bool detectionsDirty;
@@ -130,6 +131,7 @@ public class MarkerDetectionRenderer : MonoBehaviour
         TerrainEvents.OnHeightmapChanged -= HandleTerrainHeightmapChanged;
         StopPendingWallSpawnCoroutines();
         wallGroundPointCache.Clear();
+        pendingWallPointSnapshots.Clear();
 
         if (markerManager != null)
             markerManager.ClearAll();
@@ -210,7 +212,6 @@ public class MarkerDetectionRenderer : MonoBehaviour
         }
 
         Dictionary<int, MarkerConstructionAssignment> constructionLookup = BuildConstructionLookup();
-        var pendingWallSnapshots = new Dictionary<string, List<MarkerConstructionPointSnapshot>>();
         var latestDetectionsByTag = new Dictionary<string, MarkerDetection>(currentDetections.Count);
         for (int i = 0; i < currentDetections.Count; i++)
         {
@@ -257,7 +258,7 @@ public class MarkerDetectionRenderer : MonoBehaviour
             {
                 if (constructionAssignment.Binding.choice == MarkerConstructionChoice.Wall)
                 {
-                    TrackOrQueueWallPoint(detection, constructionAssignment, worldPosition, pendingWallSnapshots);
+                    TrackOrQueueWallPoint(detection, constructionAssignment, worldPosition);
                     continue;
                 }
 
@@ -280,7 +281,7 @@ public class MarkerDetectionRenderer : MonoBehaviour
                 removeColorWhenUsingPrefab);
         }
 
-        SchedulePendingWallSpawns(pendingWallSnapshots);
+        SchedulePendingWallSpawns();
         if (constructionManager != null)
             constructionManager.RefreshTrackedConstructions(markerParent);
     }
@@ -288,8 +289,7 @@ public class MarkerDetectionRenderer : MonoBehaviour
     void TrackOrQueueWallPoint(
         MarkerDetection detection,
         MarkerConstructionAssignment constructionAssignment,
-        Vector3 worldPosition,
-        Dictionary<string, List<MarkerConstructionPointSnapshot>> pendingWallSnapshots)
+        Vector3 worldPosition)
     {
         if (constructionManager == null || constructionAssignment == null || constructionAssignment.Binding == null)
             return;
@@ -307,14 +307,8 @@ public class MarkerDetectionRenderer : MonoBehaviour
             return;
         }
 
-        List<MarkerConstructionPointSnapshot> snapshots;
-        if (!pendingWallSnapshots.TryGetValue(constructionAssignment.BindingKey, out snapshots))
-        {
-            snapshots = new List<MarkerConstructionPointSnapshot>();
-            pendingWallSnapshots[constructionAssignment.BindingKey] = snapshots;
-        }
-
-        snapshots.Add(wallPointSnapshot);
+        string pointKey = string.Format("{0}:{1}", constructionAssignment.BindingKey, wallPointSnapshot.TagKey);
+        pendingWallPointSnapshots[pointKey] = new PendingWallPointSnapshot(wallPointSnapshot, Time.time);
     }
 
     bool TryCreateWallPointSnapshot(
@@ -352,7 +346,7 @@ public class MarkerDetectionRenderer : MonoBehaviour
         {
             cachedPoint.LastSeenTime = currentTime;
             if (currentTime - cachedPoint.LastRaycastTime <= cacheDuration)
-                return cachedPoint.Position;
+                return new Vector3(worldPosition.x, cachedPoint.SurfaceY, worldPosition.z);
         }
 
         float groundedSurfaceY;
@@ -363,16 +357,33 @@ public class MarkerDetectionRenderer : MonoBehaviour
             out groundedSurfaceY);
 
         Vector3 groundedPosition = new Vector3(worldPosition.x, groundedSurfaceY, worldPosition.z);
-        wallGroundPointCache[tagKey] = new CachedWallGroundPoint(groundedPosition, currentTime);
+        wallGroundPointCache[tagKey] = new CachedWallGroundPoint(groundedSurfaceY, currentTime);
         return groundedPosition;
     }
 
-    void SchedulePendingWallSpawns(Dictionary<string, List<MarkerConstructionPointSnapshot>> pendingWallSnapshots)
+    void SchedulePendingWallSpawns()
     {
-        if (constructionManager == null || pendingWallSnapshots == null || pendingWallSnapshots.Count == 0)
+        if (constructionManager == null || pendingWallPointSnapshots.Count == 0)
             return;
 
-        foreach (var entry in pendingWallSnapshots)
+        var groupedSnapshots = new Dictionary<string, List<MarkerConstructionPointSnapshot>>();
+        foreach (var entry in pendingWallPointSnapshots)
+        {
+            PendingWallPointSnapshot pendingSnapshot = entry.Value;
+            if (pendingSnapshot == null || pendingSnapshot.Snapshot == null)
+                continue;
+
+            List<MarkerConstructionPointSnapshot> snapshots;
+            if (!groupedSnapshots.TryGetValue(pendingSnapshot.Snapshot.BindingKey, out snapshots))
+            {
+                snapshots = new List<MarkerConstructionPointSnapshot>();
+                groupedSnapshots[pendingSnapshot.Snapshot.BindingKey] = snapshots;
+            }
+
+            snapshots.Add(pendingSnapshot.Snapshot);
+        }
+
+        foreach (var entry in groupedSnapshots)
         {
             if (pendingWallSpawnCoroutines.ContainsKey(entry.Key) || constructionManager.HasWallConstruction(entry.Key))
                 continue;
@@ -424,7 +435,10 @@ public class MarkerDetectionRenderer : MonoBehaviour
     void PruneWallGroundPointCache(float currentTime)
     {
         if (wallGroundPointCache.Count == 0)
+        {
+            PrunePendingWallSnapshots(currentTime);
             return;
+        }
 
         var expiredKeys = new List<string>();
         foreach (var entry in wallGroundPointCache)
@@ -435,6 +449,24 @@ public class MarkerDetectionRenderer : MonoBehaviour
 
         for (int i = 0; i < expiredKeys.Count; i++)
             wallGroundPointCache.Remove(expiredKeys[i]);
+
+        PrunePendingWallSnapshots(currentTime);
+    }
+
+    void PrunePendingWallSnapshots(float currentTime)
+    {
+        if (pendingWallPointSnapshots.Count == 0)
+            return;
+
+        var expiredKeys = new List<string>();
+        foreach (var entry in pendingWallPointSnapshots)
+        {
+            if (entry.Value == null || currentTime - entry.Value.LastSeenTime > MarkerManager.MarkerLifetimeSeconds)
+                expiredKeys.Add(entry.Key);
+        }
+
+        for (int i = 0; i < expiredKeys.Count; i++)
+            pendingWallPointSnapshots.Remove(expiredKeys[i]);
     }
 
     static int CompareWallSnapshots(MarkerConstructionPointSnapshot left, MarkerConstructionPointSnapshot right)
@@ -600,11 +632,13 @@ public class MarkerDetectionRenderer : MonoBehaviour
         outOfBoundsConversionCount = 0;
         StopPendingWallSpawnCoroutines();
         wallGroundPointCache.Clear();
+        pendingWallPointSnapshots.Clear();
     }
 
     void HandleTerrainHeightmapChanged()
     {
         wallGroundPointCache.Clear();
+        pendingWallPointSnapshots.Clear();
         detectionsDirty = true;
     }
 
@@ -633,14 +667,26 @@ public class MarkerDetectionRenderer : MonoBehaviour
 
     sealed class CachedWallGroundPoint
     {
-        public readonly Vector3 Position;
+        public readonly float SurfaceY;
         public readonly float LastRaycastTime;
         public float LastSeenTime;
 
-        public CachedWallGroundPoint(Vector3 position, float currentTime)
+        public CachedWallGroundPoint(float surfaceY, float currentTime)
         {
-            Position = position;
+            SurfaceY = surfaceY;
             LastRaycastTime = currentTime;
+            LastSeenTime = currentTime;
+        }
+    }
+
+    sealed class PendingWallPointSnapshot
+    {
+        public readonly MarkerConstructionPointSnapshot Snapshot;
+        public float LastSeenTime;
+
+        public PendingWallPointSnapshot(MarkerConstructionPointSnapshot snapshot, float currentTime)
+        {
+            Snapshot = snapshot;
             LastSeenTime = currentTime;
         }
     }
