@@ -1,3 +1,4 @@
+2026-04-08: Stabilize Unity wall segment elevation by anchoring each wall to the higher of its two marker Y positions instead of averaging endpoint heights.
 2026-04-08: Remove the legacy Unity per-tag prefab override list so prefab and wall behavior are configured only through the new construction bindings inspector path.
 2026-04-08: Add extensible Unity construction bindings so marker indexes can drive either prefab spawning or ordered wall generation, with inspector-controlled wall prefab, height, thickness, and local axis directions for future construction types.
 2026-04-08: Fix Unity marker placement for prefab buildings by snapping with pivot-aware top and bottom bounds offsets so base-pivoted meshes land on terrain instead of hovering above it.

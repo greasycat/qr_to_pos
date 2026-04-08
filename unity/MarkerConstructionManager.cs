@@ -242,7 +242,7 @@ public sealed class MarkerConstructionManager
             worldThicknessAxis);
         segment.transform.localScale = BuildScale(axes, wallLength, wallHeight, wallThickness);
         segment.transform.position = Vector3.Lerp(startPoint, endPoint, 0.5f) + Vector3.up * (wallHeight * 0.5f);
-        AlignBottomToSurface(segment, (startPoint.y + endPoint.y) * 0.5f);
+        AlignBottomToSurface(segment, Mathf.Max(startPoint.y, endPoint.y));
     }
 
     static int CompareTrackedWallPoints(TrackedWallPoint left, TrackedWallPoint right)
