@@ -1,3 +1,4 @@
+2026-04-08: Update Unity procedural walls to use a shared unit prism mesh with transform-based position, rotation, and scale updates instead of rebuilding wall vertices every refresh.
 2026-04-08: Make Unity wall markers and procedural wall points snap immediately to their grounded placement instead of inheriting the tracked-marker movement smoothing.
 2026-04-08: Stop tinting Unity prefab-backed markers on first spawn by applying the same remove-color rule during creation that later update frames already use.
 2026-04-08: Make Unity wall control points use each marker's final raycast-snapped placement position so procedural wall segments inherit the same grounded Y as their source markers.

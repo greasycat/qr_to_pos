@@ -9,6 +9,7 @@ public sealed class MarkerConstructionManager
     readonly Dictionary<string, TrackedWallPoint> trackedWallPoints = new Dictionary<string, TrackedWallPoint>();
     readonly Dictionary<string, WallConstructionState> wallStates = new Dictionary<string, WallConstructionState>();
     Material wallMaterial;
+    Mesh wallSegmentMesh;
 
     public void TrackWallPoint(Vector3 targetPosition, MarkerDetection detection, MarkerConstructionAssignment assignment)
     {
@@ -81,6 +82,12 @@ public sealed class MarkerConstructionManager
         {
             Object.Destroy(wallMaterial);
             wallMaterial = null;
+        }
+
+        if (wallSegmentMesh != null)
+        {
+            Object.Destroy(wallSegmentMesh);
+            wallSegmentMesh = null;
         }
     }
 
@@ -196,41 +203,21 @@ public sealed class MarkerConstructionManager
         Vector3 leveledStart = new Vector3(startPoint.x, wallBaseY, startPoint.z);
         Vector3 leveledEnd = new Vector3(endPoint.x, wallBaseY, endPoint.z);
         Vector3 wallDirection = leveledEnd - leveledStart;
-        if (wallDirection.sqrMagnitude < MinimumWallLength * MinimumWallLength)
+        float wallLength = wallDirection.magnitude;
+        if (wallLength < MinimumWallLength)
+        {
             wallDirection = Vector3.forward;
+            wallLength = MinimumWallLength;
+        }
 
         Vector3 wallLengthDirection = wallDirection.normalized;
-        Vector3 wallThicknessDirection = Vector3.Cross(Vector3.up, wallLengthDirection);
-        if (wallThicknessDirection.sqrMagnitude < MinimumWallLength * MinimumWallLength)
-            wallThicknessDirection = Vector3.right;
-        else
-            wallThicknessDirection.Normalize();
+        Vector3 wallCenter = Vector3.Lerp(leveledStart, leveledEnd, 0.5f);
 
         segment.name = string.Format("Construction_{0}_Wall_{1}", displayName, segmentIndex);
         segment.transform.SetParent(markerParent, false);
-        segment.transform.localPosition = Vector3.zero;
-        segment.transform.localRotation = Quaternion.identity;
-        segment.transform.localScale = Vector3.one;
-
-        Vector3 halfThicknessOffset = wallThicknessDirection * (wallThickness * 0.5f);
-        Vector3 heightOffset = Vector3.up * wallHeight;
-
-        Vector3[] wallCorners = new Vector3[8];
-        wallCorners[0] = leveledStart - halfThicknessOffset;
-        wallCorners[1] = leveledStart + halfThicknessOffset;
-        wallCorners[2] = leveledEnd + halfThicknessOffset;
-        wallCorners[3] = leveledEnd - halfThicknessOffset;
-        wallCorners[4] = wallCorners[0] + heightOffset;
-        wallCorners[5] = wallCorners[1] + heightOffset;
-        wallCorners[6] = wallCorners[2] + heightOffset;
-        wallCorners[7] = wallCorners[3] + heightOffset;
-
-        UpdateWallMesh(
-            segment,
-            markerParent,
-            wallCorners,
-            wallLengthDirection,
-            wallThicknessDirection);
+        segment.transform.position = wallCenter;
+        segment.transform.rotation = Quaternion.LookRotation(wallLengthDirection, Vector3.up);
+        SetWorldScale(segment.transform, markerParent, new Vector3(wallThickness, wallHeight, wallLength));
     }
 
     static int CompareTrackedWallPoints(TrackedWallPoint left, TrackedWallPoint right)
@@ -242,93 +229,64 @@ public sealed class MarkerConstructionManager
         return string.CompareOrdinal(left.TagKey, right.TagKey);
     }
 
-    void UpdateWallMesh(
-        GameObject segment,
-        Transform markerParent,
-        Vector3[] wallCorners,
-        Vector3 wallLengthDirection,
-        Vector3 wallThicknessDirection)
+    static void SetWorldScale(Transform segmentTransform, Transform markerParent, Vector3 worldScale)
     {
-        if (segment == null || wallCorners == null || wallCorners.Length < 8)
+        if (segmentTransform == null)
             return;
 
-        MeshFilter meshFilter = segment.GetComponent<MeshFilter>();
-        if (meshFilter == null)
-            meshFilter = segment.AddComponent<MeshFilter>();
-
-        MeshRenderer meshRenderer = segment.GetComponent<MeshRenderer>();
-        if (meshRenderer == null)
-            meshRenderer = segment.AddComponent<MeshRenderer>();
-        meshRenderer.sharedMaterial = GetOrCreateWallMaterial();
-
-        MeshCollider meshCollider = segment.GetComponent<MeshCollider>();
-        if (meshCollider == null)
-            meshCollider = segment.AddComponent<MeshCollider>();
-
-        Mesh wallMesh = meshFilter.sharedMesh;
-        if (wallMesh == null)
+        if (markerParent == null)
         {
-            wallMesh = new Mesh();
-            wallMesh.name = "MarkerConstructionWallMesh";
-            meshFilter.sharedMesh = wallMesh;
-        }
-        else
-        {
-            wallMesh.Clear();
+            segmentTransform.localScale = worldScale;
+            return;
         }
 
-        Vector3[] localCorners = new Vector3[wallCorners.Length];
-        for (int i = 0; i < wallCorners.Length; i++)
-            localCorners[i] = ToLocalPoint(markerParent, wallCorners[i]);
-
-        Vector3[] vertices;
-        int[] triangles;
-        Vector2[] uvs;
-        Vector3 localUp = ToLocalDirection(markerParent, Vector3.up);
-        Vector3 localLengthDirection = ToLocalDirection(markerParent, wallLengthDirection);
-        Vector3 localThicknessDirection = ToLocalDirection(markerParent, wallThicknessDirection);
-        BuildWallGeometry(
-            localCorners,
-            localUp,
-            localLengthDirection,
-            localThicknessDirection,
-            out vertices,
-            out triangles,
-            out uvs);
-
-        wallMesh.vertices = vertices;
-        wallMesh.triangles = triangles;
-        wallMesh.uv = uvs;
-        wallMesh.RecalculateBounds();
-        wallMesh.RecalculateNormals();
-
-        meshCollider.sharedMesh = null;
-        meshCollider.sharedMesh = wallMesh;
+        Vector3 parentScale = markerParent.lossyScale;
+        segmentTransform.localScale = new Vector3(
+            DivideScale(worldScale.x, parentScale.x),
+            DivideScale(worldScale.y, parentScale.y),
+            DivideScale(worldScale.z, parentScale.z));
     }
 
-    void BuildWallGeometry(
-        Vector3[] wallCorners,
-        Vector3 localUp,
-        Vector3 localLengthDirection,
-        Vector3 localThicknessDirection,
-        out Vector3[] vertices,
-        out int[] triangles,
-        out Vector2[] uvs)
+    static float DivideScale(float value, float divisor)
     {
+        return Mathf.Approximately(divisor, 0f) ? value : value / divisor;
+    }
+
+    Mesh GetOrCreateWallSegmentMesh()
+    {
+        if (wallSegmentMesh != null)
+            return wallSegmentMesh;
+
+        wallSegmentMesh = new Mesh();
+        wallSegmentMesh.name = "MarkerConstructionWallSegmentMesh";
+
         var vertexList = new List<Vector3>(24);
         var triangleList = new List<int>(36);
         var uvList = new List<Vector2>(24);
 
-        AddFace(vertexList, triangleList, uvList, wallCorners[0], wallCorners[1], wallCorners[2], wallCorners[3], -localUp);
-        AddFace(vertexList, triangleList, uvList, wallCorners[4], wallCorners[5], wallCorners[6], wallCorners[7], localUp);
-        AddFace(vertexList, triangleList, uvList, wallCorners[0], wallCorners[1], wallCorners[5], wallCorners[4], -localLengthDirection);
-        AddFace(vertexList, triangleList, uvList, wallCorners[3], wallCorners[2], wallCorners[6], wallCorners[7], localLengthDirection);
-        AddFace(vertexList, triangleList, uvList, wallCorners[0], wallCorners[4], wallCorners[7], wallCorners[3], -localThicknessDirection);
-        AddFace(vertexList, triangleList, uvList, wallCorners[1], wallCorners[2], wallCorners[6], wallCorners[5], localThicknessDirection);
+        Vector3[] corners = new Vector3[8];
+        corners[0] = new Vector3(-0.5f, 0f, -0.5f);
+        corners[1] = new Vector3(0.5f, 0f, -0.5f);
+        corners[2] = new Vector3(0.5f, 0f, 0.5f);
+        corners[3] = new Vector3(-0.5f, 0f, 0.5f);
+        corners[4] = new Vector3(-0.5f, 1f, -0.5f);
+        corners[5] = new Vector3(0.5f, 1f, -0.5f);
+        corners[6] = new Vector3(0.5f, 1f, 0.5f);
+        corners[7] = new Vector3(-0.5f, 1f, 0.5f);
 
-        vertices = vertexList.ToArray();
-        triangles = triangleList.ToArray();
-        uvs = uvList.ToArray();
+        AddFace(vertexList, triangleList, uvList, corners[0], corners[1], corners[2], corners[3], Vector3.down);
+        AddFace(vertexList, triangleList, uvList, corners[4], corners[5], corners[6], corners[7], Vector3.up);
+        AddFace(vertexList, triangleList, uvList, corners[0], corners[1], corners[5], corners[4], Vector3.back);
+        AddFace(vertexList, triangleList, uvList, corners[3], corners[2], corners[6], corners[7], Vector3.forward);
+        AddFace(vertexList, triangleList, uvList, corners[0], corners[4], corners[7], corners[3], Vector3.left);
+        AddFace(vertexList, triangleList, uvList, corners[1], corners[2], corners[6], corners[5], Vector3.right);
+
+        wallSegmentMesh.vertices = vertexList.ToArray();
+        wallSegmentMesh.triangles = triangleList.ToArray();
+        wallSegmentMesh.uv = uvList.ToArray();
+        wallSegmentMesh.RecalculateBounds();
+        wallSegmentMesh.RecalculateNormals();
+        return wallSegmentMesh;
     }
 
     static void AddFace(
@@ -376,10 +334,12 @@ public sealed class MarkerConstructionManager
     GameObject CreateSegment()
     {
         var segment = new GameObject();
-        segment.AddComponent<MeshFilter>();
+        MeshFilter meshFilter = segment.AddComponent<MeshFilter>();
+        meshFilter.sharedMesh = GetOrCreateWallSegmentMesh();
         MeshRenderer meshRenderer = segment.AddComponent<MeshRenderer>();
         meshRenderer.sharedMaterial = GetOrCreateWallMaterial();
-        segment.AddComponent<MeshCollider>();
+        MeshCollider meshCollider = segment.AddComponent<MeshCollider>();
+        meshCollider.sharedMesh = GetOrCreateWallSegmentMesh();
         return segment;
     }
 
@@ -405,22 +365,6 @@ public sealed class MarkerConstructionManager
         wallMaterial.name = "MarkerConstructionWallMaterial";
         wallMaterial.color = DefaultWallColor;
         return wallMaterial;
-    }
-
-    static Vector3 ToLocalPoint(Transform markerParent, Vector3 worldPoint)
-    {
-        if (markerParent == null)
-            return worldPoint;
-
-        return markerParent.InverseTransformPoint(worldPoint);
-    }
-
-    static Vector3 ToLocalDirection(Transform markerParent, Vector3 worldDirection)
-    {
-        if (markerParent == null)
-            return worldDirection.normalized;
-
-        return markerParent.InverseTransformDirection(worldDirection).normalized;
     }
 
     void ClearWallState(string bindingKey)
