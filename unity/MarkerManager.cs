@@ -28,6 +28,8 @@ public sealed class MarkerManager
 
         TrackedMarker trackedMarker;
         GameObject marker;
+        bool usesPrefab = markerPrefab != null;
+        bool applyColor = !usesPrefab || !removeColorWhenUsingPrefab;
         bool isNewMarker = !trackedMarkers.TryGetValue(tagKey, out trackedMarker)
             || trackedMarker == null
             || trackedMarker.Marker == null;
@@ -39,8 +41,9 @@ public sealed class MarkerManager
                 targetPosition,
                 markerScale,
                 markerColor,
-                markerPrefab);
-            trackedMarker = new TrackedMarker(marker, markerPrefab != null);
+                markerPrefab,
+                applyColor);
+            trackedMarker = new TrackedMarker(marker, usesPrefab);
             trackedMarkers[tagKey] = trackedMarker;
         }
         else
@@ -48,7 +51,7 @@ public sealed class MarkerManager
             marker = trackedMarker.Marker;
         }
 
-        bool applyColor = !trackedMarker.UsesPrefab || !removeColorWhenUsingPrefab;
+        applyColor = !trackedMarker.UsesPrefab || !removeColorWhenUsingPrefab;
         UpdateMarker(marker, markerParent, markerName, markerScale, markerColor, applyColor);
         marker.transform.rotation = Quaternion.identity;
         Vector3 nextTargetPosition = isNewMarker
@@ -72,7 +75,7 @@ public sealed class MarkerManager
         GameObject marker;
         if (!debugMarkers.TryGetValue(markerName, out marker) || marker == null)
         {
-            marker = CreateMarker(markerParent, markerName, position, debugBoundsScale, debugBoundsColor, null);
+            marker = CreateMarker(markerParent, markerName, position, debugBoundsScale, debugBoundsColor, null, true);
             debugMarkers[markerName] = marker;
             return;
         }
@@ -157,13 +160,20 @@ public sealed class MarkerManager
             trackedMarkers.Remove(expiredKeys[i]);
     }
 
-    GameObject CreateMarker(Transform markerParent, string markerName, Vector3 position, Vector3 scale, Color color, GameObject markerPrefab)
+    GameObject CreateMarker(
+        Transform markerParent,
+        string markerName,
+        Vector3 position,
+        Vector3 scale,
+        Color color,
+        GameObject markerPrefab,
+        bool applyColor)
     {
         GameObject marker = markerPrefab != null
             ? Object.Instantiate(markerPrefab, position, Quaternion.identity)
             : GameObject.CreatePrimitive(PrimitiveType.Cube);
         marker.transform.position = position;
-        UpdateMarker(marker, markerParent, markerName, scale, color, true);
+        UpdateMarker(marker, markerParent, markerName, scale, color, applyColor);
         return marker;
     }
 
