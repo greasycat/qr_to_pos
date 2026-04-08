@@ -265,7 +265,8 @@ public class MarkerDetectionRenderer : MonoBehaviour
                     detection,
                     GetConstructionPrefab(constructionAssignment),
                     removeColorWhenUsingPrefab,
-                    wallGroundRaycastCacheSeconds);
+                    wallGroundRaycastCacheSeconds,
+                    wallGroundMaxValidSurfaceY);
                 continue;
             }
 
@@ -276,7 +277,8 @@ public class MarkerDetectionRenderer : MonoBehaviour
                 detection,
                 null,
                 removeColorWhenUsingPrefab,
-                wallGroundRaycastCacheSeconds);
+                wallGroundRaycastCacheSeconds,
+                wallGroundMaxValidSurfaceY);
         }
 
         if (constructionManager != null)

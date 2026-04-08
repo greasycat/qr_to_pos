@@ -28,7 +28,8 @@ public sealed class MarkerManager
         MarkerDetection detection,
         GameObject markerPrefab,
         bool removeColorWhenUsingPrefab,
-        float groundRaycastCacheSeconds)
+        float groundRaycastCacheSeconds,
+        float maxValidSurfaceY)
     {
         string tagKey;
         if (!TryGetTrackingKey(detection, out tagKey))
@@ -66,7 +67,12 @@ public sealed class MarkerManager
         UpdateMarker(marker, markerParent, markerName, markerScale, markerColor, applyColor);
         marker.transform.rotation = Quaternion.identity;
         marker.transform.position = targetPosition;
-        marker.transform.position = ResolvePlacementPosition(marker, tagKey, targetPosition, groundRaycastCacheSeconds);
+        marker.transform.position = ResolvePlacementPosition(
+            marker,
+            tagKey,
+            targetPosition,
+            groundRaycastCacheSeconds,
+            maxValidSurfaceY);
         trackedMarker.LastSeenTime = Time.time;
         return marker.transform.position;
     }
@@ -264,7 +270,12 @@ public sealed class MarkerManager
         return string.Format("Marker_{0}", label);
     }
 
-    Vector3 ResolvePlacementPosition(GameObject marker, string tagKey, Vector3 startPosition, float cacheDurationSeconds)
+    Vector3 ResolvePlacementPosition(
+        GameObject marker,
+        string tagKey,
+        Vector3 startPosition,
+        float cacheDurationSeconds,
+        float maxValidSurfaceY)
     {
         Bounds markerBounds;
         if (!TryGetObjectBounds(marker, out markerBounds))
@@ -293,11 +304,24 @@ public sealed class MarkerManager
             out resolvedPosition,
             out surfaceY))
         {
-            cachedMarkerGroundSurfaces[tagKey] = new CachedMarkerGroundSurface(surfaceY, currentTime);
-            return resolvedPosition;
+            if (IsValidGroundSurfaceY(surfaceY, maxValidSurfaceY))
+            {
+                cachedMarkerGroundSurfaces[tagKey] = new CachedMarkerGroundSurface(surfaceY, currentTime);
+                return resolvedPosition;
+            }
         }
 
+        if (cachedSurface != null)
+            return new Vector3(startPosition.x, cachedSurface.SurfaceY + markerBottomOffset, startPosition.z);
+
         return startPosition;
+    }
+
+    static bool IsValidGroundSurfaceY(float surfaceY, float maxValidSurfaceY)
+    {
+        return !float.IsNaN(surfaceY)
+            && !float.IsInfinity(surfaceY)
+            && surfaceY <= maxValidSurfaceY;
     }
 
     static Vector3 ResolvePlacementPosition(
