@@ -332,7 +332,7 @@ public class MarkerDetectionRenderer : MonoBehaviour
             markerScale,
             out groundedSurfaceY);
 
-        if (IsValidWallGroundSurfaceY(groundedSurfaceY))
+        if (IsValidWallGroundSurfaceY(groundedSurfaceY, worldPosition.y))
         {
             float cachedSurfaceY = hasRecentCache ? Mathf.Min(groundedSurfaceY, cachedPoint.SurfaceY) : groundedSurfaceY;
             groundedPosition = new Vector3(worldPosition.x, cachedSurfaceY, worldPosition.z);
@@ -365,11 +365,11 @@ public class MarkerDetectionRenderer : MonoBehaviour
             wallGroundPointCache.Remove(expiredKeys[i]);
     }
 
-    bool IsValidWallGroundSurfaceY(float surfaceY)
+    bool IsValidWallGroundSurfaceY(float surfaceY, float referenceY)
     {
         return !float.IsNaN(surfaceY)
             && !float.IsInfinity(surfaceY)
-            && surfaceY <= wallGroundMaxValidSurfaceY;
+            && surfaceY - referenceY <= wallGroundMaxValidSurfaceY;
     }
 
     void SpawnDebugBounds(MarkerTerrainMapper terrainMapper)

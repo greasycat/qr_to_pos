@@ -304,7 +304,7 @@ public sealed class MarkerManager
             out resolvedPosition,
             out surfaceY))
         {
-            if (IsValidGroundSurfaceY(surfaceY, maxValidSurfaceY))
+            if (IsValidGroundSurfaceY(surfaceY, startPosition.y, maxValidSurfaceY))
             {
                 float cachedSurfaceY = hasRecentCache ? Mathf.Min(surfaceY, cachedSurface.SurfaceY) : surfaceY;
                 cachedMarkerGroundSurfaces[tagKey] = new CachedMarkerGroundSurface(cachedSurfaceY, currentTime);
@@ -318,11 +318,11 @@ public sealed class MarkerManager
         return startPosition;
     }
 
-    static bool IsValidGroundSurfaceY(float surfaceY, float maxValidSurfaceY)
+    static bool IsValidGroundSurfaceY(float surfaceY, float referenceY, float maxPositiveDeltaY)
     {
         return !float.IsNaN(surfaceY)
             && !float.IsInfinity(surfaceY)
-            && surfaceY <= maxValidSurfaceY;
+            && surfaceY - referenceY <= maxPositiveDeltaY;
     }
 
     static Vector3 ResolvePlacementPosition(
