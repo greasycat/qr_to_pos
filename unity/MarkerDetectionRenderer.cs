@@ -1,14 +1,6 @@
 using Intel.RealSense;
-using System;
 using System.Collections.Generic;
 using UnityEngine;
-
-[Serializable]
-public sealed class MarkerPrefabOverride
-{
-    public int index;
-    public GameObject prefab;
-}
 
 public class MarkerDetectionRenderer : MonoBehaviour
 {
@@ -29,7 +21,6 @@ public class MarkerDetectionRenderer : MonoBehaviour
     public Vector3 markerScale = new Vector3(0.08f, 0.08f, 0.08f);
     public float markerVerticalOffset = 0.05f;
     public List<MarkerConstructionBinding> markerConstructionBindings = new List<MarkerConstructionBinding>();
-    public List<MarkerPrefabOverride> markerPrefabOverrides = new List<MarkerPrefabOverride>();
     public bool removeColorWhenUsingPrefab = true;
 
     public bool showDebugBounds = true;
@@ -211,7 +202,6 @@ public class MarkerDetectionRenderer : MonoBehaviour
         }
 
         Dictionary<int, MarkerConstructionAssignment> constructionLookup = BuildConstructionLookup();
-        Dictionary<int, GameObject> prefabLookup = BuildMarkerPrefabLookup();
         var latestDetectionsByTag = new Dictionary<string, MarkerDetection>(currentDetections.Count);
         for (int i = 0; i < currentDetections.Count; i++)
         {
@@ -268,7 +258,7 @@ public class MarkerDetectionRenderer : MonoBehaviour
                     worldPosition,
                     markerScale,
                     detection,
-                    GetMarkerPrefabForDetection(detection, constructionLookup, prefabLookup),
+                    GetConstructionPrefab(constructionAssignment),
                     removeColorWhenUsingPrefab);
                 continue;
             }
@@ -278,7 +268,7 @@ public class MarkerDetectionRenderer : MonoBehaviour
                 worldPosition,
                 markerScale,
                 detection,
-                GetMarkerPrefabForDetection(detection, constructionLookup, prefabLookup),
+                null,
                 removeColorWhenUsingPrefab);
         }
 
@@ -332,24 +322,6 @@ public class MarkerDetectionRenderer : MonoBehaviour
         return constructionLookup;
     }
 
-    Dictionary<int, GameObject> BuildMarkerPrefabLookup()
-    {
-        if (markerPrefabOverrides == null || markerPrefabOverrides.Count == 0)
-            return new Dictionary<int, GameObject>();
-
-        var prefabLookup = new Dictionary<int, GameObject>(markerPrefabOverrides.Count);
-        for (int i = 0; i < markerPrefabOverrides.Count; i++)
-        {
-            MarkerPrefabOverride overrideEntry = markerPrefabOverrides[i];
-            if (overrideEntry == null || overrideEntry.prefab == null)
-                continue;
-
-            prefabLookup[overrideEntry.index] = overrideEntry.prefab;
-        }
-
-        return prefabLookup;
-    }
-
     static MarkerConstructionAssignment GetConstructionAssignmentForDetection(
         MarkerDetection detection,
         Dictionary<int, MarkerConstructionAssignment> constructionLookup)
@@ -365,30 +337,15 @@ public class MarkerDetectionRenderer : MonoBehaviour
         return assignment;
     }
 
-    static GameObject GetMarkerPrefabForDetection(
-        MarkerDetection detection,
-        Dictionary<int, MarkerConstructionAssignment> constructionLookup,
-        Dictionary<int, GameObject> prefabLookup)
+    static GameObject GetConstructionPrefab(MarkerConstructionAssignment constructionAssignment)
     {
-        MarkerConstructionAssignment constructionAssignment = GetConstructionAssignmentForDetection(detection, constructionLookup);
-        if (constructionAssignment != null && constructionAssignment.Binding != null)
-        {
-            if (constructionAssignment.Binding.choice == MarkerConstructionChoice.Wall)
-                return null;
-
-            if (constructionAssignment.Binding.prefab != null)
-                return constructionAssignment.Binding.prefab;
-        }
-
-        int markerIndex;
-        if (!int.TryParse(detection.data, out markerIndex))
+        if (constructionAssignment == null || constructionAssignment.Binding == null)
             return null;
 
-        GameObject markerPrefab;
-        if (!prefabLookup.TryGetValue(markerIndex, out markerPrefab))
+        if (constructionAssignment.Binding.choice != MarkerConstructionChoice.Prefab)
             return null;
 
-        return markerPrefab;
+        return constructionAssignment.Binding.prefab;
     }
 
     void PumpLiveTexture()
