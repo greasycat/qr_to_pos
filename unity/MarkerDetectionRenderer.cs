@@ -20,7 +20,6 @@ public class MarkerDetectionRenderer : MonoBehaviour
     public Transform markerParent;
     public Vector3 markerScale = new Vector3(0.08f, 0.08f, 0.08f);
     public float markerVerticalOffset = 0.05f;
-    public float wallGroundRaycastCacheSeconds = 0.15f;
     public float wallGroundMaxValidSurfaceY = 150f;
     public List<MarkerConstructionBinding> markerConstructionBindings = new List<MarkerConstructionBinding>();
     public bool removeColorWhenUsingPrefab = true;
@@ -45,7 +44,6 @@ public class MarkerDetectionRenderer : MonoBehaviour
     MarkerConstructionManager constructionManager;
     Texture2D currentSourceTexture;
     int lastDebugTextureVersion = -1;
-    readonly Dictionary<string, CachedWallGroundPoint> wallGroundPointCache = new Dictionary<string, CachedWallGroundPoint>();
 
     bool detectionsDirty;
     bool liveFrameSourceInitialized;
@@ -97,11 +95,6 @@ public class MarkerDetectionRenderer : MonoBehaviour
 
         if (markerManager != null)
             markerManager.PruneExpiredMarkers(Time.time);
-
-        if (constructionManager != null)
-            constructionManager.PruneExpiredConstructions(markerParent, Time.time);
-
-        PruneWallGroundPointCache(Time.time);
     }
 
     async void OnDestroy()
@@ -127,7 +120,6 @@ public class MarkerDetectionRenderer : MonoBehaviour
         }
 
         TerrainEvents.OnHeightmapChanged -= HandleTerrainHeightmapChanged;
-        wallGroundPointCache.Clear();
 
         if (markerManager != null)
             markerManager.ClearAll();
@@ -176,6 +168,8 @@ public class MarkerDetectionRenderer : MonoBehaviour
         if (terrain == null)
         {
             markerManager.ClearDebugMarkers();
+            if (constructionManager != null)
+                constructionManager.ClearWalls();
             if (!missingTerrainLogged)
             {
                 Debug.LogWarning("MarkerDetectionRenderer: No terrain assigned, skipping marker placement.");
@@ -199,7 +193,11 @@ public class MarkerDetectionRenderer : MonoBehaviour
         }
 
         if (currentSourceTexture == null)
+        {
+            if (constructionManager != null)
+                constructionManager.ClearWalls();
             return;
+        }
 
         List<MarkerDetection> currentDetections;
         lock (detectionsLock)
@@ -208,6 +206,7 @@ public class MarkerDetectionRenderer : MonoBehaviour
         }
 
         Dictionary<int, MarkerConstructionAssignment> constructionLookup = BuildConstructionLookup();
+        Dictionary<string, PendingWallBinding> pendingWalls = BuildPendingWallBindings();
         var latestDetectionsByTag = new Dictionary<string, MarkerDetection>(currentDetections.Count);
         for (int i = 0; i < currentDetections.Count; i++)
         {
@@ -254,7 +253,7 @@ public class MarkerDetectionRenderer : MonoBehaviour
             {
                 if (constructionAssignment.Binding.choice == MarkerConstructionChoice.Wall)
                 {
-                    TrackWallPoint(detection, constructionAssignment, worldPosition);
+                    TrackWallPoint(constructionAssignment, worldPosition, pendingWalls);
                     continue;
                 }
 
@@ -280,48 +279,37 @@ public class MarkerDetectionRenderer : MonoBehaviour
         }
 
         if (constructionManager != null)
-            constructionManager.RefreshTrackedConstructions(markerParent);
+            ApplyWallBindings(pendingWalls);
     }
 
     void TrackWallPoint(
-        MarkerDetection detection,
         MarkerConstructionAssignment constructionAssignment,
-        Vector3 worldPosition)
+        Vector3 worldPosition,
+        Dictionary<string, PendingWallBinding> pendingWalls)
     {
-        if (constructionManager == null || constructionAssignment == null || constructionAssignment.Binding == null)
+        if (constructionAssignment == null || constructionAssignment.Binding == null || pendingWalls == null)
+            return;
+
+        PendingWallBinding pendingWall;
+        if (!pendingWalls.TryGetValue(constructionAssignment.BindingKey, out pendingWall) || pendingWall == null)
+            return;
+
+        if (constructionAssignment.Order < 0 || constructionAssignment.Order >= pendingWall.Positions.Length)
             return;
 
         Vector3 groundedPosition = worldPosition;
-        if (!TryGetGroundedWallPosition(detection, worldPosition, out groundedPosition))
+        if (!TryGetGroundedWallPosition(worldPosition, out groundedPosition))
             return;
 
-        constructionManager.TrackWallPoint(
-            groundedPosition,
-            detection,
-            constructionAssignment);
+        pendingWall.Positions[constructionAssignment.Order] = groundedPosition;
+        pendingWall.HasPositions[constructionAssignment.Order] = true;
     }
 
     bool TryGetGroundedWallPosition(
-        MarkerDetection detection,
         Vector3 worldPosition,
         out Vector3 groundedPosition)
     {
         groundedPosition = worldPosition;
-
-        string tagKey;
-        if (!MarkerManager.TryGetTrackingKey(detection, out tagKey))
-            return false;
-
-        float currentTime = Time.time;
-        float cacheDuration = Mathf.Max(0f, wallGroundRaycastCacheSeconds);
-        bool hasRecentCache = false;
-
-        CachedWallGroundPoint cachedPoint;
-        if (wallGroundPointCache.TryGetValue(tagKey, out cachedPoint))
-        {
-            cachedPoint.LastSeenTime = currentTime;
-            hasRecentCache = currentTime - cachedPoint.LastRaycastTime <= cacheDuration;
-        }
 
         float groundedSurfaceY;
         MarkerManager.ResolveGroundedCubePosition(
@@ -330,37 +318,11 @@ public class MarkerDetectionRenderer : MonoBehaviour
             markerScale,
             out groundedSurfaceY);
 
-        if (IsValidWallGroundSurfaceY(groundedSurfaceY, worldPosition.y))
-        {
-            float cachedSurfaceY = hasRecentCache ? Mathf.Min(groundedSurfaceY, cachedPoint.SurfaceY) : groundedSurfaceY;
-            groundedPosition = new Vector3(worldPosition.x, cachedSurfaceY, worldPosition.z);
-            wallGroundPointCache[tagKey] = new CachedWallGroundPoint(cachedSurfaceY, currentTime);
-            return true;
-        }
+        if (!IsValidWallGroundSurfaceY(groundedSurfaceY, worldPosition.y))
+            return false;
 
-        if (cachedPoint != null)
-        {
-            groundedPosition = new Vector3(worldPosition.x, cachedPoint.SurfaceY, worldPosition.z);
-            return true;
-        }
-
-        return false;
-    }
-
-    void PruneWallGroundPointCache(float currentTime)
-    {
-        if (wallGroundPointCache.Count == 0)
-            return;
-
-        var expiredKeys = new List<string>();
-        foreach (var entry in wallGroundPointCache)
-        {
-            if (entry.Value == null || currentTime - entry.Value.LastSeenTime > MarkerManager.MarkerLifetimeSeconds)
-                expiredKeys.Add(entry.Key);
-        }
-
-        for (int i = 0; i < expiredKeys.Count; i++)
-            wallGroundPointCache.Remove(expiredKeys[i]);
+        groundedPosition = new Vector3(worldPosition.x, groundedSurfaceY, worldPosition.z);
+        return true;
     }
 
     bool IsValidWallGroundSurfaceY(float surfaceY, float referenceY)
@@ -385,6 +347,57 @@ public class MarkerDetectionRenderer : MonoBehaviour
             flipZ);
     }
 
+    Dictionary<string, PendingWallBinding> BuildPendingWallBindings()
+    {
+        var pendingWalls = new Dictionary<string, PendingWallBinding>();
+        if (markerConstructionBindings == null || markerConstructionBindings.Count == 0)
+            return pendingWalls;
+
+        for (int i = 0; i < markerConstructionBindings.Count; i++)
+        {
+            MarkerConstructionBinding binding = markerConstructionBindings[i];
+            if (binding == null
+                || binding.choice != MarkerConstructionChoice.Wall
+                || binding.markerIndexes == null
+                || binding.markerIndexes.Count == 0)
+            {
+                continue;
+            }
+
+            string bindingKey = BuildBindingKey(i);
+            pendingWalls[bindingKey] = new PendingWallBinding(bindingKey, binding);
+        }
+
+        return pendingWalls;
+    }
+
+    void ApplyWallBindings(Dictionary<string, PendingWallBinding> pendingWalls)
+    {
+        if (constructionManager == null)
+            return;
+
+        constructionManager.BeginWallRefresh();
+
+        if (pendingWalls != null)
+        {
+            foreach (var entry in pendingWalls)
+            {
+                PendingWallBinding pendingWall = entry.Value;
+                if (pendingWall == null || !pendingWall.IsComplete)
+                    continue;
+
+                constructionManager.UpdateWall(
+                    markerParent,
+                    pendingWall.BindingKey,
+                    pendingWall.DisplayName,
+                    pendingWall.Binding.wall,
+                    pendingWall.Positions);
+            }
+        }
+
+        constructionManager.EndWallRefresh();
+    }
+
     Dictionary<int, MarkerConstructionAssignment> BuildConstructionLookup()
     {
         if (markerConstructionBindings == null || markerConstructionBindings.Count == 0)
@@ -397,7 +410,7 @@ public class MarkerDetectionRenderer : MonoBehaviour
             if (binding == null || binding.markerIndexes == null || binding.markerIndexes.Count == 0)
                 continue;
 
-            string bindingKey = string.Format("construction_{0}", i);
+            string bindingKey = BuildBindingKey(i);
             for (int order = 0; order < binding.markerIndexes.Count; order++)
             {
                 int markerIndex = binding.markerIndexes[order];
@@ -414,6 +427,11 @@ public class MarkerDetectionRenderer : MonoBehaviour
         }
 
         return constructionLookup;
+    }
+
+    static string BuildBindingKey(int bindingIndex)
+    {
+        return string.Format("construction_{0}", bindingIndex);
     }
 
     static MarkerConstructionAssignment GetConstructionAssignmentForDetection(
@@ -503,12 +521,10 @@ public class MarkerDetectionRenderer : MonoBehaviour
         }
 
         outOfBoundsConversionCount = 0;
-        wallGroundPointCache.Clear();
     }
 
     void HandleTerrainHeightmapChanged()
     {
-        wallGroundPointCache.Clear();
         detectionsDirty = true;
     }
 
@@ -535,17 +551,48 @@ public class MarkerDetectionRenderer : MonoBehaviour
             detection.depth_centroid_pct[1]);
     }
 
-    sealed class CachedWallGroundPoint
+    sealed class PendingWallBinding
     {
-        public readonly float SurfaceY;
-        public readonly float LastRaycastTime;
-        public float LastSeenTime;
+        public readonly string BindingKey;
+        public readonly MarkerConstructionBinding Binding;
+        public readonly Vector3[] Positions;
+        public readonly bool[] HasPositions;
 
-        public CachedWallGroundPoint(float surfaceY, float currentTime)
+        public PendingWallBinding(string bindingKey, MarkerConstructionBinding binding)
         {
-            SurfaceY = surfaceY;
-            LastRaycastTime = currentTime;
-            LastSeenTime = currentTime;
+            BindingKey = bindingKey;
+            Binding = binding;
+            int markerCount = binding != null && binding.markerIndexes != null ? binding.markerIndexes.Count : 0;
+            Positions = new Vector3[markerCount];
+            HasPositions = new bool[markerCount];
+        }
+
+        public string DisplayName
+        {
+            get
+            {
+                if (Binding != null && !string.IsNullOrEmpty(Binding.name))
+                    return Binding.name;
+
+                return BindingKey;
+            }
+        }
+
+        public bool IsComplete
+        {
+            get
+            {
+                if (Positions == null || Positions.Length < 2 || HasPositions == null || HasPositions.Length != Positions.Length)
+                    return false;
+
+                for (int i = 0; i < HasPositions.Length; i++)
+                {
+                    if (!HasPositions[i])
+                        return false;
+                }
+
+                return true;
+            }
         }
     }
 }

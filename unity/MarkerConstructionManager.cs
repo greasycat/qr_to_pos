@@ -6,77 +6,90 @@ public sealed class MarkerConstructionManager
     const float MinimumWallLength = 0.001f;
     static readonly Color DefaultWallColor = new Color(0.78f, 0.78f, 0.78f, 1f);
 
-    readonly Dictionary<string, TrackedWallPoint> trackedWallPoints = new Dictionary<string, TrackedWallPoint>();
+    readonly HashSet<string> activeWallBindings = new HashSet<string>();
     readonly Dictionary<string, WallConstructionState> wallStates = new Dictionary<string, WallConstructionState>();
     Material wallMaterial;
     Mesh wallSegmentMesh;
 
-    public void TrackWallPoint(Vector3 targetPosition, MarkerDetection detection, MarkerConstructionAssignment assignment)
+    public void BeginWallRefresh()
     {
-        if (assignment == null || assignment.Binding == null)
+        activeWallBindings.Clear();
+    }
+
+    public void UpdateWall(
+        Transform markerParent,
+        string bindingKey,
+        string displayName,
+        MarkerWallConstructionSettings wallSettings,
+        Vector3[] orderedPoints)
+    {
+        if (string.IsNullOrEmpty(bindingKey))
             return;
 
-        string tagKey;
-        if (!MarkerManager.TryGetTrackingKey(detection, out tagKey))
-            return;
-
-        string pointKey = string.Format("{0}:{1}", assignment.BindingKey, tagKey);
-        TrackedWallPoint trackedPoint;
-        if (!trackedWallPoints.TryGetValue(pointKey, out trackedPoint))
+        if (orderedPoints == null || orderedPoints.Length < 2)
         {
-            trackedPoint = new TrackedWallPoint();
-            trackedWallPoints[pointKey] = trackedPoint;
+            ClearWallState(bindingKey);
+            return;
         }
 
-        trackedPoint.BindingKey = assignment.BindingKey;
-        trackedPoint.DisplayName = assignment.DisplayName;
-        trackedPoint.TagKey = tagKey;
-        trackedPoint.Order = assignment.Order;
-        trackedPoint.Binding = assignment.Binding;
-        trackedPoint.Position = targetPosition;
-        trackedPoint.LastSeenTime = Time.time;
-    }
-
-    public void RefreshTrackedConstructions(Transform markerParent)
-    {
-        RebuildWalls(markerParent);
-    }
-
-    public void PruneExpiredConstructions(Transform markerParent, float currentTime)
-    {
-        if (trackedWallPoints.Count == 0)
-            return;
-
-        var expiredKeys = new List<string>();
-        foreach (var entry in trackedWallPoints)
+        WallConstructionState wallState;
+        if (!wallStates.TryGetValue(bindingKey, out wallState))
         {
-            TrackedWallPoint trackedPoint = entry.Value;
-            if (trackedPoint == null)
+            wallState = new WallConstructionState();
+            wallStates[bindingKey] = wallState;
+        }
+
+        EnsureSegmentCapacity(wallState, orderedPoints.Length - 1);
+        for (int i = 0; i < orderedPoints.Length - 1; i++)
+        {
+            GameObject segment = wallState.Segments[i];
+            if (segment == null)
             {
-                expiredKeys.Add(entry.Key);
-                continue;
+                segment = CreateSegment();
+                wallState.Segments[i] = segment;
             }
 
-            if (currentTime - trackedPoint.LastSeenTime > MarkerManager.MarkerLifetimeSeconds)
-                expiredKeys.Add(entry.Key);
+            UpdateWallSegment(
+                segment,
+                markerParent,
+                displayName,
+                i,
+                orderedPoints[i],
+                orderedPoints[i + 1],
+                wallSettings);
         }
 
-        if (expiredKeys.Count == 0)
-            return;
-
-        for (int i = 0; i < expiredKeys.Count; i++)
-            trackedWallPoints.Remove(expiredKeys[i]);
-
-        RebuildWalls(markerParent);
+        activeWallBindings.Add(bindingKey);
     }
 
-    public void ClearAll()
+    public void EndWallRefresh()
+    {
+        var staleGroups = new List<string>();
+        foreach (var entry in wallStates)
+        {
+            if (!activeWallBindings.Contains(entry.Key))
+            {
+                DestroySegments(entry.Value);
+                staleGroups.Add(entry.Key);
+            }
+        }
+
+        for (int i = 0; i < staleGroups.Count; i++)
+            wallStates.Remove(staleGroups[i]);
+    }
+
+    public void ClearWalls()
     {
         foreach (var entry in wallStates)
             DestroySegments(entry.Value);
 
-        trackedWallPoints.Clear();
         wallStates.Clear();
+        activeWallBindings.Clear();
+    }
+
+    public void ClearAll()
+    {
+        ClearWalls();
 
         if (wallMaterial != null)
         {
@@ -89,84 +102,6 @@ public sealed class MarkerConstructionManager
             Object.Destroy(wallSegmentMesh);
             wallSegmentMesh = null;
         }
-    }
-
-    void RebuildWalls(Transform markerParent)
-    {
-        var groupedPoints = new Dictionary<string, List<TrackedWallPoint>>();
-        foreach (var entry in trackedWallPoints)
-        {
-            TrackedWallPoint trackedPoint = entry.Value;
-            if (trackedPoint == null || trackedPoint.Binding == null || trackedPoint.Binding.choice != MarkerConstructionChoice.Wall)
-                continue;
-
-            List<TrackedWallPoint> points;
-            if (!groupedPoints.TryGetValue(trackedPoint.BindingKey, out points))
-            {
-                points = new List<TrackedWallPoint>();
-                groupedPoints[trackedPoint.BindingKey] = points;
-            }
-
-            points.Add(trackedPoint);
-        }
-
-        var activeGroups = new HashSet<string>();
-        foreach (var entry in groupedPoints)
-        {
-            List<TrackedWallPoint> points = entry.Value;
-            points.Sort(CompareTrackedWallPoints);
-
-            if (points.Count < 2)
-            {
-                ClearWallState(entry.Key);
-                continue;
-            }
-
-            TrackedWallPoint firstPoint = points[0];
-            MarkerWallConstructionSettings wallSettings = firstPoint.Binding.wall;
-
-            WallConstructionState wallState;
-            if (!wallStates.TryGetValue(entry.Key, out wallState))
-            {
-                wallState = new WallConstructionState();
-                wallStates[entry.Key] = wallState;
-            }
-
-            EnsureSegmentCapacity(wallState, points.Count - 1);
-            for (int i = 0; i < points.Count - 1; i++)
-            {
-                GameObject segment = wallState.Segments[i];
-                if (segment == null)
-                {
-                    segment = CreateSegment();
-                    wallState.Segments[i] = segment;
-                }
-
-                UpdateWallSegment(
-                    segment,
-                    markerParent,
-                    firstPoint.DisplayName,
-                    i,
-                    points[i].Position,
-                    points[i + 1].Position,
-                    wallSettings);
-            }
-
-            activeGroups.Add(entry.Key);
-        }
-
-        var staleGroups = new List<string>();
-        foreach (var entry in wallStates)
-        {
-            if (!activeGroups.Contains(entry.Key))
-            {
-                DestroySegments(entry.Value);
-                staleGroups.Add(entry.Key);
-            }
-        }
-
-        for (int i = 0; i < staleGroups.Count; i++)
-            wallStates.Remove(staleGroups[i]);
     }
 
     void EnsureSegmentCapacity(WallConstructionState wallState, int requiredCount)
@@ -218,15 +153,6 @@ public sealed class MarkerConstructionManager
         segment.transform.position = wallCenter;
         segment.transform.rotation = Quaternion.LookRotation(wallLengthDirection, Vector3.up);
         SetWorldScale(segment.transform, markerParent, new Vector3(wallThickness, wallHeight, wallLength));
-    }
-
-    static int CompareTrackedWallPoints(TrackedWallPoint left, TrackedWallPoint right)
-    {
-        int orderComparison = left.Order.CompareTo(right.Order);
-        if (orderComparison != 0)
-            return orderComparison;
-
-        return string.CompareOrdinal(left.TagKey, right.TagKey);
     }
 
     static void SetWorldScale(Transform segmentTransform, Transform markerParent, Vector3 worldScale)
@@ -389,17 +315,6 @@ public sealed class MarkerConstructionManager
         }
 
         wallState.Segments.Clear();
-    }
-
-    sealed class TrackedWallPoint
-    {
-        public string BindingKey;
-        public string DisplayName;
-        public string TagKey;
-        public int Order;
-        public MarkerConstructionBinding Binding;
-        public Vector3 Position;
-        public float LastSeenTime;
     }
 
     sealed class WallConstructionState
