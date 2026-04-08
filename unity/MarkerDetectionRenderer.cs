@@ -28,6 +28,7 @@ public class MarkerDetectionRenderer : MonoBehaviour
     public Transform markerParent;
     public Vector3 markerScale = new Vector3(0.08f, 0.08f, 0.08f);
     public float markerVerticalOffset = 0.05f;
+    public List<MarkerConstructionBinding> markerConstructionBindings = new List<MarkerConstructionBinding>();
     public List<MarkerPrefabOverride> markerPrefabOverrides = new List<MarkerPrefabOverride>();
     public bool removeColorWhenUsingPrefab = true;
 
@@ -48,6 +49,7 @@ public class MarkerDetectionRenderer : MonoBehaviour
     MarkerFrameTextureSource frameTextureSource;
     MarkerDetectionWebSocketClient detectionClient;
     MarkerManager markerManager;
+    MarkerConstructionManager constructionManager;
     Texture2D currentSourceTexture;
     int lastDebugTextureVersion = -1;
 
@@ -65,6 +67,7 @@ public class MarkerDetectionRenderer : MonoBehaviour
             markerParent = transform;
 
         markerManager = new MarkerManager();
+        constructionManager = new MarkerConstructionManager();
         detectionsDirty = true;
         TerrainEvents.OnHeightmapChanged += HandleTerrainHeightmapChanged;
 
@@ -100,6 +103,9 @@ public class MarkerDetectionRenderer : MonoBehaviour
 
         if (markerManager != null)
             markerManager.PruneExpiredMarkers(Time.time);
+
+        if (constructionManager != null)
+            constructionManager.PruneExpiredConstructions(markerParent, Time.time);
     }
 
     async void OnDestroy()
@@ -128,6 +134,9 @@ public class MarkerDetectionRenderer : MonoBehaviour
 
         if (markerManager != null)
             markerManager.ClearAll();
+
+        if (constructionManager != null)
+            constructionManager.ClearAll();
     }
 
     async void OnApplicationQuit()
@@ -201,6 +210,7 @@ public class MarkerDetectionRenderer : MonoBehaviour
             currentDetections = new List<MarkerDetection>(detections);
         }
 
+        Dictionary<int, MarkerConstructionAssignment> constructionLookup = BuildConstructionLookup();
         Dictionary<int, GameObject> prefabLookup = BuildMarkerPrefabLookup();
         var latestDetectionsByTag = new Dictionary<string, MarkerDetection>(currentDetections.Count);
         for (int i = 0; i < currentDetections.Count; i++)
@@ -243,14 +253,37 @@ public class MarkerDetectionRenderer : MonoBehaviour
                 continue;
             }
 
+            MarkerConstructionAssignment constructionAssignment = GetConstructionAssignmentForDetection(detection, constructionLookup);
+            if (constructionAssignment != null && constructionAssignment.Binding != null)
+            {
+                if (constructionAssignment.Binding.choice == MarkerConstructionChoice.Wall)
+                {
+                    if (constructionManager != null)
+                        constructionManager.TrackWallPoint(worldPosition, detection, constructionAssignment);
+                    continue;
+                }
+
+                markerManager.TrackMarker(
+                    markerParent,
+                    worldPosition,
+                    markerScale,
+                    detection,
+                    GetMarkerPrefabForDetection(detection, constructionLookup, prefabLookup),
+                    removeColorWhenUsingPrefab);
+                continue;
+            }
+
             markerManager.TrackMarker(
                 markerParent,
                 worldPosition,
                 markerScale,
                 detection,
-                GetMarkerPrefabForDetection(detection, prefabLookup),
+                GetMarkerPrefabForDetection(detection, constructionLookup, prefabLookup),
                 removeColorWhenUsingPrefab);
         }
+
+        if (constructionManager != null)
+            constructionManager.RefreshTrackedConstructions(markerParent);
     }
 
     void SpawnDebugBounds(MarkerTerrainMapper terrainMapper)
@@ -266,6 +299,37 @@ public class MarkerDetectionRenderer : MonoBehaviour
             terrain,
             flipX,
             flipZ);
+    }
+
+    Dictionary<int, MarkerConstructionAssignment> BuildConstructionLookup()
+    {
+        if (markerConstructionBindings == null || markerConstructionBindings.Count == 0)
+            return new Dictionary<int, MarkerConstructionAssignment>();
+
+        var constructionLookup = new Dictionary<int, MarkerConstructionAssignment>();
+        for (int i = 0; i < markerConstructionBindings.Count; i++)
+        {
+            MarkerConstructionBinding binding = markerConstructionBindings[i];
+            if (binding == null || binding.markerIndexes == null || binding.markerIndexes.Count == 0)
+                continue;
+
+            string bindingKey = string.Format("construction_{0}", i);
+            for (int order = 0; order < binding.markerIndexes.Count; order++)
+            {
+                int markerIndex = binding.markerIndexes[order];
+                if (constructionLookup.ContainsKey(markerIndex))
+                {
+                    Debug.LogWarningFormat(
+                        "MarkerDetectionRenderer: Marker index {0} is assigned to multiple construction bindings. Using the last binding '{1}'.",
+                        markerIndex,
+                        string.IsNullOrEmpty(binding.name) ? bindingKey : binding.name);
+                }
+
+                constructionLookup[markerIndex] = new MarkerConstructionAssignment(bindingKey, binding, markerIndex, order);
+            }
+        }
+
+        return constructionLookup;
     }
 
     Dictionary<int, GameObject> BuildMarkerPrefabLookup()
@@ -286,8 +350,36 @@ public class MarkerDetectionRenderer : MonoBehaviour
         return prefabLookup;
     }
 
-    static GameObject GetMarkerPrefabForDetection(MarkerDetection detection, Dictionary<int, GameObject> prefabLookup)
+    static MarkerConstructionAssignment GetConstructionAssignmentForDetection(
+        MarkerDetection detection,
+        Dictionary<int, MarkerConstructionAssignment> constructionLookup)
     {
+        int markerIndex;
+        if (!int.TryParse(detection.data, out markerIndex))
+            return null;
+
+        MarkerConstructionAssignment assignment;
+        if (!constructionLookup.TryGetValue(markerIndex, out assignment))
+            return null;
+
+        return assignment;
+    }
+
+    static GameObject GetMarkerPrefabForDetection(
+        MarkerDetection detection,
+        Dictionary<int, MarkerConstructionAssignment> constructionLookup,
+        Dictionary<int, GameObject> prefabLookup)
+    {
+        MarkerConstructionAssignment constructionAssignment = GetConstructionAssignmentForDetection(detection, constructionLookup);
+        if (constructionAssignment != null && constructionAssignment.Binding != null)
+        {
+            if (constructionAssignment.Binding.choice == MarkerConstructionChoice.Wall)
+                return null;
+
+            if (constructionAssignment.Binding.prefab != null)
+                return constructionAssignment.Binding.prefab;
+        }
+
         int markerIndex;
         if (!int.TryParse(detection.data, out markerIndex))
             return null;

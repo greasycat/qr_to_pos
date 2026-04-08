@@ -1,3 +1,4 @@
+2026-04-08: Add extensible Unity construction bindings so marker indexes can drive either prefab spawning or ordered wall generation, with inspector-controlled wall prefab, height, thickness, and local axis directions for future construction types.
 2026-04-08: Fix Unity marker placement for prefab buildings by snapping with pivot-aware top and bottom bounds offsets so base-pivoted meshes land on terrain instead of hovering above it.
 2026-04-04: Audit the repo docs against the current AprilTag implementation, add the missing registration-coords route details, and align the documented test command with the working uv invocation.
 2026-04-04: Shorten the README into a quick-start overview and move the detailed runtime and service instructions into docs/runtime-reference.md.

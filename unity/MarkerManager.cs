@@ -3,8 +3,8 @@ using UnityEngine;
 
 public sealed class MarkerManager
 {
-    const float MarkerLifetimeSeconds = 3f;
-    const float MaxMarkerMovementDistancePerUpdate = 5f;
+    internal const float MarkerLifetimeSeconds = 3f;
+    internal const float MaxMarkerMovementDistancePerUpdate = 5f;
     const float PlacementRaycastPadding = 0.01f;
 
     readonly Dictionary<string, TrackedMarker> trackedMarkers = new Dictionary<string, TrackedMarker>();
@@ -239,7 +239,7 @@ public sealed class MarkerManager
     static Vector3 ResolvePlacementPosition(GameObject marker, Vector3 startPosition)
     {
         Bounds markerBounds;
-        if (!TryGetMarkerBounds(marker, out markerBounds))
+        if (!TryGetObjectBounds(marker, out markerBounds))
             return startPosition;
 
         float markerBottomOffset = marker.transform.position.y - markerBounds.min.y;
@@ -274,7 +274,7 @@ public sealed class MarkerManager
         return new Vector3(startPosition.x, surfaceY + markerBottomOffset, startPosition.z);
     }
 
-    static bool TryGetMarkerBounds(GameObject marker, out Bounds bounds)
+    internal static bool TryGetObjectBounds(GameObject marker, out Bounds bounds)
     {
         Collider[] colliders = marker.GetComponentsInChildren<Collider>(true);
         if (TryEncapsulateBounds(colliders, out bounds))
