@@ -242,8 +242,9 @@ public sealed class MarkerManager
         if (!TryGetMarkerBounds(marker, out markerBounds))
             return startPosition;
 
-        float halfHeight = markerBounds.extents.y;
-        Vector3 rayOrigin = startPosition + Vector3.up * (halfHeight + PlacementRaycastPadding);
+        float markerBottomOffset = marker.transform.position.y - markerBounds.min.y;
+        float markerTopOffset = markerBounds.max.y - marker.transform.position.y;
+        Vector3 rayOrigin = startPosition + Vector3.up * (markerTopOffset + PlacementRaycastPadding);
         RaycastHit[] hits = Physics.RaycastAll(
             rayOrigin,
             Vector3.down,
@@ -270,7 +271,7 @@ public sealed class MarkerManager
         if (!hasHit)
             return startPosition;
 
-        return new Vector3(startPosition.x, surfaceY + halfHeight, startPosition.z);
+        return new Vector3(startPosition.x, surfaceY + markerBottomOffset, startPosition.z);
     }
 
     static bool TryGetMarkerBounds(GameObject marker, out Bounds bounds)
