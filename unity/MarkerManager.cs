@@ -285,13 +285,13 @@ public sealed class MarkerManager
         float markerTopOffset = markerBounds.max.y - marker.transform.position.y;
         float currentTime = Time.time;
         float cacheDuration = Mathf.Max(0f, cacheDurationSeconds);
+        bool hasRecentCache = false;
 
         CachedMarkerGroundSurface cachedSurface;
         if (cachedMarkerGroundSurfaces.TryGetValue(tagKey, out cachedSurface))
         {
             cachedSurface.LastSeenTime = currentTime;
-            if (currentTime - cachedSurface.LastRaycastTime <= cacheDuration)
-                return new Vector3(startPosition.x, cachedSurface.SurfaceY + markerBottomOffset, startPosition.z);
+            hasRecentCache = currentTime - cachedSurface.LastRaycastTime <= cacheDuration;
         }
 
         float surfaceY;
@@ -306,8 +306,9 @@ public sealed class MarkerManager
         {
             if (IsValidGroundSurfaceY(surfaceY, maxValidSurfaceY))
             {
-                cachedMarkerGroundSurfaces[tagKey] = new CachedMarkerGroundSurface(surfaceY, currentTime);
-                return resolvedPosition;
+                float cachedSurfaceY = hasRecentCache ? Mathf.Min(surfaceY, cachedSurface.SurfaceY) : surfaceY;
+                cachedMarkerGroundSurfaces[tagKey] = new CachedMarkerGroundSurface(cachedSurfaceY, currentTime);
+                return new Vector3(startPosition.x, cachedSurfaceY + markerBottomOffset, startPosition.z);
             }
         }
 

@@ -1,3 +1,4 @@
+2026-04-08: Make Unity wall and tracked-marker grounding caches keep the lowest recent valid raycast Y within the shared 150ms window, so short-lived high hits can no longer raise cached placement.
 2026-04-08: Apply the same Unity Y<=150 grounding filter to tracked marker placement, so cached marker ground hits reject obviously bad high collider surfaces just like walls do.
 2026-04-08: Reuse the shared Unity wall grounding cache duration for prefab and cube marker placement too, so tracked markers stop raycasting every refresh and keep their last recent grounded surface per tag.
 2026-04-08: Remove Unity tracked-marker smoothing so prefab and cube markers always teleport directly to the latest detected position before ground snapping.

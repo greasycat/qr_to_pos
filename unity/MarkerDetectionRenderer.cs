@@ -316,16 +316,13 @@ public class MarkerDetectionRenderer : MonoBehaviour
 
         float currentTime = Time.time;
         float cacheDuration = Mathf.Max(0f, wallGroundRaycastCacheSeconds);
+        bool hasRecentCache = false;
 
         CachedWallGroundPoint cachedPoint;
         if (wallGroundPointCache.TryGetValue(tagKey, out cachedPoint))
         {
             cachedPoint.LastSeenTime = currentTime;
-            if (currentTime - cachedPoint.LastRaycastTime <= cacheDuration)
-            {
-                groundedPosition = new Vector3(worldPosition.x, cachedPoint.SurfaceY, worldPosition.z);
-                return true;
-            }
+            hasRecentCache = currentTime - cachedPoint.LastRaycastTime <= cacheDuration;
         }
 
         float groundedSurfaceY;
@@ -337,8 +334,9 @@ public class MarkerDetectionRenderer : MonoBehaviour
 
         if (IsValidWallGroundSurfaceY(groundedSurfaceY))
         {
-            groundedPosition = new Vector3(worldPosition.x, groundedSurfaceY, worldPosition.z);
-            wallGroundPointCache[tagKey] = new CachedWallGroundPoint(groundedSurfaceY, currentTime);
+            float cachedSurfaceY = hasRecentCache ? Mathf.Min(groundedSurfaceY, cachedPoint.SurfaceY) : groundedSurfaceY;
+            groundedPosition = new Vector3(worldPosition.x, cachedSurfaceY, worldPosition.z);
+            wallGroundPointCache[tagKey] = new CachedWallGroundPoint(cachedSurfaceY, currentTime);
             return true;
         }
 
