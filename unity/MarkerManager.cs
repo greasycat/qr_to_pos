@@ -17,7 +17,8 @@ public sealed class MarkerManager
         Vector3 markerScale,
         MarkerDetection detection,
         GameObject markerPrefab,
-        bool removeColorWhenUsingPrefab)
+        bool removeColorWhenUsingPrefab,
+        bool smoothMovement = true)
     {
         string tagKey;
         if (!TryGetTrackingKey(detection, out tagKey))
@@ -54,7 +55,7 @@ public sealed class MarkerManager
         applyColor = !trackedMarker.UsesPrefab || !removeColorWhenUsingPrefab;
         UpdateMarker(marker, markerParent, markerName, markerScale, markerColor, applyColor);
         marker.transform.rotation = Quaternion.identity;
-        Vector3 nextTargetPosition = isNewMarker
+        Vector3 nextTargetPosition = !smoothMovement || isNewMarker
             ? targetPosition
             : Vector3.MoveTowards(marker.transform.position, targetPosition, MaxMarkerMovementDistancePerUpdate);
         marker.transform.position = nextTargetPosition;

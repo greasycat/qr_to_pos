@@ -1,3 +1,4 @@
+2026-04-08: Make Unity wall markers and procedural wall points snap immediately to their grounded placement instead of inheriting the tracked-marker movement smoothing.
 2026-04-08: Stop tinting Unity prefab-backed markers on first spawn by applying the same remove-color rule during creation that later update frames already use.
 2026-04-08: Make Unity wall control points use each marker's final raycast-snapped placement position so procedural wall segments inherit the same grounded Y as their source markers.
 2026-04-08: Replace Unity wall prefab segments with procedural prism meshes built directly from marker pairs, wall thickness, and wall height, anchored to the higher marker Y to avoid wall flipping.

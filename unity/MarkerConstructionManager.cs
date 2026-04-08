@@ -25,14 +25,6 @@ public sealed class MarkerConstructionManager
         {
             trackedPoint = new TrackedWallPoint();
             trackedWallPoints[pointKey] = trackedPoint;
-            trackedPoint.Position = targetPosition;
-        }
-        else
-        {
-            trackedPoint.Position = Vector3.MoveTowards(
-                trackedPoint.Position,
-                targetPosition,
-                MarkerManager.MaxMarkerMovementDistancePerUpdate);
         }
 
         trackedPoint.BindingKey = assignment.BindingKey;
@@ -40,6 +32,7 @@ public sealed class MarkerConstructionManager
         trackedPoint.TagKey = tagKey;
         trackedPoint.Order = assignment.Order;
         trackedPoint.Binding = assignment.Binding;
+        trackedPoint.Position = targetPosition;
         trackedPoint.LastSeenTime = Time.time;
     }
 

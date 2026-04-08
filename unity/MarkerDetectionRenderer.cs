@@ -256,7 +256,8 @@ public class MarkerDetectionRenderer : MonoBehaviour
                             markerScale,
                             detection,
                             null,
-                            removeColorWhenUsingPrefab);
+                            removeColorWhenUsingPrefab,
+                            false);
                         constructionManager.TrackWallPoint(placedMarkerPosition, detection, constructionAssignment);
                     }
                     continue;
