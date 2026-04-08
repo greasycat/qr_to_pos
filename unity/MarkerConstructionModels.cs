@@ -8,25 +8,11 @@ public enum MarkerConstructionChoice
     Wall,
 }
 
-public enum MarkerConstructionAxisDirection
-{
-    PositiveX,
-    NegativeX,
-    PositiveY,
-    NegativeY,
-    PositiveZ,
-    NegativeZ,
-}
-
 [Serializable]
 public sealed class MarkerWallConstructionSettings
 {
-    public GameObject segmentPrefab;
     public float height = 1f;
     public float thickness = 0.2f;
-    public MarkerConstructionAxisDirection lengthAxis = MarkerConstructionAxisDirection.PositiveZ;
-    public MarkerConstructionAxisDirection heightAxis = MarkerConstructionAxisDirection.PositiveY;
-    public MarkerConstructionAxisDirection thicknessAxis = MarkerConstructionAxisDirection.PositiveX;
 }
 
 [Serializable]
