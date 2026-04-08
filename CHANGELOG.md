@@ -1,3 +1,4 @@
+2026-04-08: Restore Unity wall placement to frame-based updates, keep only validated grounded Y values in the wall cache, and ignore raycast heights above 150 so bad hits stop poisoning wall positioning.
 2026-04-08: Persist pending Unity wall-point snapshots across frames and cache only grounded Y, so coroutine-based wall spawning no longer depends on all wall tags appearing in the same detection refresh.
 2026-04-08: Defer initial Unity wall creation by one frame using grounded wall-point snapshots and a short per-tag raycast cache, so new walls spawn from stable captured positions instead of snapping down from fresh raycasts every refresh.
 2026-04-08: Ground Unity wall control points with a direct cube-placement raycast instead of spawning visible helper markers, so walls stay hidden until they have a grounded base Y and no longer inherit marker-center height.

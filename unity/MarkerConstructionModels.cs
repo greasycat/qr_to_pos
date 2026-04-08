@@ -51,29 +51,3 @@ public sealed class MarkerConstructionAssignment
         }
     }
 }
-
-public sealed class MarkerConstructionPointSnapshot
-{
-    public readonly string BindingKey;
-    public readonly MarkerConstructionBinding Binding;
-    public readonly string DisplayName;
-    public readonly string TagKey;
-    public readonly int Order;
-    public readonly Vector3 Position;
-
-    public MarkerConstructionPointSnapshot(
-        string bindingKey,
-        MarkerConstructionBinding binding,
-        string displayName,
-        string tagKey,
-        int order,
-        Vector3 position)
-    {
-        BindingKey = bindingKey;
-        Binding = binding;
-        DisplayName = displayName;
-        TagKey = tagKey;
-        Order = order;
-        Position = position;
-    }
-}
