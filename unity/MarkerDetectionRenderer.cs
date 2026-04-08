@@ -291,7 +291,7 @@ public class MarkerDetectionRenderer : MonoBehaviour
         if (constructionManager == null || constructionAssignment == null || constructionAssignment.Binding == null)
             return;
 
-        Vector3 groundedPosition;
+        Vector3 groundedPosition = worldPosition;
         if (!TryGetGroundedWallPosition(detection, worldPosition, out groundedPosition))
             return;
 

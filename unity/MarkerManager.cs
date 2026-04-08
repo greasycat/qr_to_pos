@@ -53,11 +53,9 @@ public sealed class MarkerManager
             marker.transform.rotation = Quaternion.identity;
         }
 
-        Vector3 groundedPosition;
+        Vector3 groundedPosition = targetPosition;
         bool hasGroundedPosition = marker != null
             && TryResolveGroundedMarkerPosition(marker, targetPosition, maxValidSurfaceY, out groundedPosition);
-        if (!hasGroundedPosition)
-            groundedPosition = targetPosition;
 
         if (isNewMarker)
         {
