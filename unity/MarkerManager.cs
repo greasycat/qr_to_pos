@@ -11,6 +11,16 @@ public sealed class MarkerManager
     readonly Dictionary<string, GameObject> debugMarkers = new Dictionary<string, GameObject>();
     readonly HashSet<string> activeDebugMarkers = new HashSet<string>();
 
+    public static Vector3 ResolveGroundedCubePosition(
+        Transform markerParent,
+        Vector3 startPosition,
+        Vector3 markerScale,
+        out float surfaceY)
+    {
+        float halfHeight = GetWorldAxisScale(markerParent, markerScale).y * 0.5f;
+        return ResolvePlacementPosition(startPosition, halfHeight, halfHeight, null, out surfaceY);
+    }
+
     public Vector3 TrackMarker(
         Transform markerParent,
         Vector3 targetPosition,
@@ -256,6 +266,17 @@ public sealed class MarkerManager
 
         float markerBottomOffset = marker.transform.position.y - markerBounds.min.y;
         float markerTopOffset = markerBounds.max.y - marker.transform.position.y;
+        float surfaceY;
+        return ResolvePlacementPosition(startPosition, markerBottomOffset, markerTopOffset, marker.transform, out surfaceY);
+    }
+
+    static Vector3 ResolvePlacementPosition(
+        Vector3 startPosition,
+        float markerBottomOffset,
+        float markerTopOffset,
+        Transform ignoredRoot,
+        out float surfaceY)
+    {
         Vector3 rayOrigin = startPosition + Vector3.up * (markerTopOffset + PlacementRaycastPadding);
         RaycastHit[] hits = Physics.RaycastAll(
             rayOrigin,
@@ -266,10 +287,13 @@ public sealed class MarkerManager
 
         bool hasHit = false;
         float nearestDistance = float.PositiveInfinity;
-        float surfaceY = startPosition.y;
+        surfaceY = startPosition.y;
         for (int i = 0; i < hits.Length; i++)
         {
-            if (hits[i].collider == null || hits[i].collider.transform.IsChildOf(marker.transform))
+            if (hits[i].collider == null)
+                continue;
+
+            if (ignoredRoot != null && hits[i].collider.transform.IsChildOf(ignoredRoot))
                 continue;
 
             if (hits[i].distance < nearestDistance)
@@ -284,6 +308,18 @@ public sealed class MarkerManager
             return startPosition;
 
         return new Vector3(startPosition.x, surfaceY + markerBottomOffset, startPosition.z);
+    }
+
+    static Vector3 GetWorldAxisScale(Transform markerParent, Vector3 localScale)
+    {
+        if (markerParent == null)
+            return new Vector3(Mathf.Abs(localScale.x), Mathf.Abs(localScale.y), Mathf.Abs(localScale.z));
+
+        Vector3 parentScale = markerParent.lossyScale;
+        return new Vector3(
+            Mathf.Abs(parentScale.x * localScale.x),
+            Mathf.Abs(parentScale.y * localScale.y),
+            Mathf.Abs(parentScale.z * localScale.z));
     }
 
     internal static bool TryGetObjectBounds(GameObject marker, out Bounds bounds)

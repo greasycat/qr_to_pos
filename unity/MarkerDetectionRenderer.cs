@@ -250,15 +250,16 @@ public class MarkerDetectionRenderer : MonoBehaviour
                 {
                     if (constructionManager != null)
                     {
-                        Vector3 placedMarkerPosition = markerManager.TrackMarker(
+                        float groundedSurfaceY;
+                        MarkerManager.ResolveGroundedCubePosition(
                             markerParent,
                             worldPosition,
                             markerScale,
+                            out groundedSurfaceY);
+                        constructionManager.TrackWallPoint(
+                            new Vector3(worldPosition.x, groundedSurfaceY, worldPosition.z),
                             detection,
-                            null,
-                            removeColorWhenUsingPrefab,
-                            false);
-                        constructionManager.TrackWallPoint(placedMarkerPosition, detection, constructionAssignment);
+                            constructionAssignment);
                     }
                     continue;
                 }
