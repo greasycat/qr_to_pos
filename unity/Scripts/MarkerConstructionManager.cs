@@ -39,6 +39,7 @@ public sealed class MarkerConstructionManager
             wallStates[bindingKey] = wallState;
         }
 
+        Material segmentMaterial = SyncWallMaterial(wallState, wallSettings);
         EnsureSegmentCapacity(wallState, orderedPoints.Length - 1);
         for (int i = 0; i < orderedPoints.Length - 1; i++)
         {
@@ -56,7 +57,8 @@ public sealed class MarkerConstructionManager
                 i,
                 orderedPoints[i],
                 orderedPoints[i + 1],
-                wallSettings);
+                wallSettings,
+                segmentMaterial);
         }
 
         activeWallBindings.Add(bindingKey);
@@ -127,7 +129,8 @@ public sealed class MarkerConstructionManager
         int segmentIndex,
         Vector3 startPoint,
         Vector3 endPoint,
-        MarkerWallConstructionSettings wallSettings)
+        MarkerWallConstructionSettings wallSettings,
+        Material material)
     {
         if (segment == null)
             return;
@@ -158,6 +161,10 @@ public sealed class MarkerConstructionManager
         segment.transform.position = segmentPosition;
         segment.transform.rotation = Quaternion.LookRotation(wallLengthDirection, Vector3.up);
         SetWorldScale(segment.transform, markerParent, new Vector3(wallThickness, wallHeight, wallLength));
+
+        MeshRenderer meshRenderer = segment.GetComponent<MeshRenderer>();
+        if (meshRenderer != null)
+            meshRenderer.sharedMaterial = material;
     }
 
     static void SetWorldScale(Transform segmentTransform, Transform markerParent, Vector3 worldScale)
@@ -208,9 +215,9 @@ public sealed class MarkerConstructionManager
         AddFace(vertexList, triangleList, uvList, corners[0], corners[1], corners[2], corners[3], Vector3.down);
         AddFace(vertexList, triangleList, uvList, corners[4], corners[5], corners[6], corners[7], Vector3.up);
         AddFace(vertexList, triangleList, uvList, corners[0], corners[1], corners[5], corners[4], Vector3.back);
-        AddFace(vertexList, triangleList, uvList, corners[3], corners[2], corners[6], corners[7], Vector3.forward);
-        AddFace(vertexList, triangleList, uvList, corners[0], corners[4], corners[7], corners[3], Vector3.left);
-        AddFace(vertexList, triangleList, uvList, corners[1], corners[2], corners[6], corners[5], Vector3.right);
+        AddFace(vertexList, triangleList, uvList, corners[2], corners[3], corners[7], corners[6], Vector3.forward);
+        AddFace(vertexList, triangleList, uvList, corners[0], corners[3], corners[7], corners[4], Vector3.left);
+        AddFace(vertexList, triangleList, uvList, corners[2], corners[1], corners[5], corners[6], Vector3.right);
 
         wallSegmentMesh.vertices = vertexList.ToArray();
         wallSegmentMesh.triangles = triangleList.ToArray();
@@ -308,6 +315,33 @@ public sealed class MarkerConstructionManager
         wallStates.Remove(bindingKey);
     }
 
+    Material SyncWallMaterial(WallConstructionState wallState, MarkerWallConstructionSettings wallSettings)
+    {
+        Texture2D texture = wallSettings != null ? wallSettings.texture : null;
+
+        if (texture == null)
+        {
+            if (wallState.OverrideMaterial != null)
+            {
+                Object.Destroy(wallState.OverrideMaterial);
+                wallState.OverrideMaterial = null;
+            }
+            return GetOrCreateWallMaterial();
+        }
+
+        if (wallState.OverrideMaterial == null || wallState.OverrideMaterial.mainTexture != texture)
+        {
+            if (wallState.OverrideMaterial != null)
+                Object.Destroy(wallState.OverrideMaterial);
+
+            wallState.OverrideMaterial = new Material(GetOrCreateWallMaterial());
+            wallState.OverrideMaterial.name = "MarkerConstructionWallMaterial_Textured";
+            wallState.OverrideMaterial.mainTexture = texture;
+        }
+
+        return wallState.OverrideMaterial;
+    }
+
     static void DestroySegments(WallConstructionState wallState)
     {
         if (wallState == null)
@@ -320,10 +354,17 @@ public sealed class MarkerConstructionManager
         }
 
         wallState.Segments.Clear();
+
+        if (wallState.OverrideMaterial != null)
+        {
+            Object.Destroy(wallState.OverrideMaterial);
+            wallState.OverrideMaterial = null;
+        }
     }
 
     sealed class WallConstructionState
     {
         public readonly List<GameObject> Segments = new List<GameObject>();
+        public Material OverrideMaterial;
     }
 }

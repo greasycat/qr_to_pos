@@ -14,6 +14,7 @@ public sealed class MarkerWallConstructionSettings
     public float height = 1f;
     public float thickness = 0.2f;
     public bool invertY;
+    public Texture2D texture;
 }
 
 [Serializable]
