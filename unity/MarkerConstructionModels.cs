@@ -13,6 +13,7 @@ public sealed class MarkerWallConstructionSettings
 {
     public float height = 1f;
     public float thickness = 0.2f;
+    public bool invertY;
 }
 
 [Serializable]

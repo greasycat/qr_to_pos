@@ -27,8 +27,7 @@ public sealed class MarkerManager
         Vector3 markerScale,
         MarkerDetection detection,
         GameObject markerPrefab,
-        bool removeColorWhenUsingPrefab,
-        float maxValidSurfaceY)
+        bool removeColorWhenUsingPrefab)
     {
         string tagKey;
         if (!TryGetTrackingKey(detection, out tagKey))
@@ -55,7 +54,7 @@ public sealed class MarkerManager
 
         Vector3 groundedPosition = targetPosition;
         bool hasGroundedPosition = marker != null
-            && TryResolveGroundedMarkerPosition(marker, targetPosition, maxValidSurfaceY, out groundedPosition);
+            && TryResolveGroundedMarkerPosition(marker, targetPosition, out groundedPosition);
 
         if (isNewMarker)
         {
@@ -67,7 +66,7 @@ public sealed class MarkerManager
                 markerColor,
                 markerPrefab,
                 nextApplyColor);
-            if (TryResolveGroundedMarkerPosition(marker, targetPosition, maxValidSurfaceY, out groundedPosition))
+            if (TryResolveGroundedMarkerPosition(marker, targetPosition, out groundedPosition))
                 marker.transform.position = groundedPosition;
 
             trackedMarker = new TrackedMarker(marker, usesPrefab, markerPrefab);
@@ -78,6 +77,11 @@ public sealed class MarkerManager
 
         if (!sourceChanged && !ShouldRespawnMarker(marker.transform.position, groundedPosition))
         {
+            if (hasGroundedPosition)
+                marker.transform.position = new Vector3(
+                    marker.transform.position.x,
+                    groundedPosition.y,
+                    marker.transform.position.z);
             trackedMarker.LastSeenTime = Time.time;
             return marker.transform.position;
         }
@@ -93,7 +97,10 @@ public sealed class MarkerManager
             markerColor,
             markerPrefab,
             nextApplyColor);
-        if (TryResolveGroundedMarkerPosition(marker, targetPosition, maxValidSurfaceY, out groundedPosition))
+        // Don't re-ground when the first grounding already succeeded: the old marker is queued for
+        // destruction but its collider is still live, so a second raycast would hit its top face
+        // rather than the terrain and place the new marker one cube-height too high.
+        if (!hasGroundedPosition && TryResolveGroundedMarkerPosition(marker, targetPosition, out groundedPosition))
             marker.transform.position = groundedPosition;
         trackedMarker = new TrackedMarker(marker, usesPrefab, markerPrefab);
         trackedMarkers[tagKey] = trackedMarker;
@@ -288,7 +295,6 @@ public sealed class MarkerManager
     bool TryResolveGroundedMarkerPosition(
         GameObject marker,
         Vector3 startPosition,
-        float maxValidSurfaceY,
         out Vector3 groundedPosition)
     {
         groundedPosition = startPosition;
@@ -307,23 +313,15 @@ public sealed class MarkerManager
             markerTopOffset,
             marker.transform,
             out resolvedPosition,
-            out surfaceY))
+            out surfaceY)
+            && !float.IsNaN(surfaceY)
+            && !float.IsInfinity(surfaceY))
         {
-            if (IsValidGroundSurfaceY(surfaceY, startPosition.y, maxValidSurfaceY))
-            {
-                groundedPosition = resolvedPosition;
-                return true;
-            }
+            groundedPosition = resolvedPosition;
+            return true;
         }
 
         return false;
-    }
-
-    static bool IsValidGroundSurfaceY(float surfaceY, float referenceY, float maxPositiveDeltaY)
-    {
-        return !float.IsNaN(surfaceY)
-            && !float.IsInfinity(surfaceY)
-            && surfaceY - referenceY <= maxPositiveDeltaY;
     }
 
     static bool ShouldRespawnMarker(Vector3 currentPosition, Vector3 groundedPosition)

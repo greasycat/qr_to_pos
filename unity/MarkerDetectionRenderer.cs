@@ -4,7 +4,9 @@ using UnityEngine;
 
 public class MarkerDetectionRenderer : MonoBehaviour
 {
-    public bool debugMode;
+    public enum DebugMode { None, MockServer, SingleImage }
+
+    public DebugMode debugMode;
     public RsFrameProvider Source;
 
     public Stream _stream;
@@ -18,19 +20,18 @@ public class MarkerDetectionRenderer : MonoBehaviour
 
     public Terrain terrain;
     public Transform markerParent;
-    public Vector3 markerScale = new Vector3(0.08f, 0.08f, 0.08f);
+    public Vector3 markerScale = new Vector3(30f, 30f, 30f);
     public float markerVerticalOffset = 0.05f;
-    public float wallGroundMaxValidSurfaceY = 150f;
     public List<MarkerConstructionBinding> markerConstructionBindings = new List<MarkerConstructionBinding>();
     public bool removeColorWhenUsingPrefab = true;
 
     public bool showDebugBounds = true;
     public Color debugBoundsColor = Color.blue;
-    public Vector3 debugBoundsScale = new Vector3(0.12f, 0.12f, 0.12f);
+    public Vector3 debugBoundsScale = new Vector3(30f, 30f, 30f);
     public float debugBoundsY = 0.5f;
 
     public bool flipX;
-    public bool flipZ = true;
+    public bool flipZ;
 
     [SerializeField] int detectionCount;
     [SerializeField] int outOfBoundsConversionCount;
@@ -38,6 +39,7 @@ public class MarkerDetectionRenderer : MonoBehaviour
     readonly List<MarkerDetection> detections = new List<MarkerDetection>();
     readonly object detectionsLock = new object();
 
+    Texture2D mockServerDummyTexture;
     MarkerFrameTextureSource frameTextureSource;
     MarkerDetectionWebSocketClient detectionClient;
     MarkerManager markerManager;
@@ -53,7 +55,7 @@ public class MarkerDetectionRenderer : MonoBehaviour
     async void Start()
     {
         if (terrain == null)
-            terrain = Terrain.activeTerrain;
+            terrain = Terrain.activeTerrain ?? Object.FindObjectOfType<Terrain>();
 
         if (markerParent == null)
             markerParent = transform;
@@ -61,9 +63,8 @@ public class MarkerDetectionRenderer : MonoBehaviour
         markerManager = new MarkerManager();
         constructionManager = new MarkerConstructionManager();
         detectionsDirty = true;
-        TerrainEvents.OnHeightmapChanged += HandleTerrainHeightmapChanged;
 
-        if (!debugMode)
+        if (debugMode == DebugMode.None)
             TryInitializeLiveFrameSource();
 
         detectionClient = new MarkerDetectionWebSocketClient(serverUrl, HandleDetectionResponse);
@@ -85,8 +86,10 @@ public class MarkerDetectionRenderer : MonoBehaviour
             detectionClient.DispatchMessageQueue();
 #endif
 
-        if (debugMode)
-            PumpDebugTexture();
+        if (debugMode == DebugMode.MockServer)
+            PumpMockServerTexture();
+        else if (debugMode == DebugMode.SingleImage)
+            PumpSingleImageTexture();
         else
             PumpLiveTexture();
 
@@ -99,6 +102,12 @@ public class MarkerDetectionRenderer : MonoBehaviour
 
     async void OnDestroy()
     {
+        if (mockServerDummyTexture != null)
+        {
+            UnityEngine.Object.Destroy(mockServerDummyTexture);
+            mockServerDummyTexture = null;
+        }
+
         if (frameTextureSource != null)
         {
             frameTextureSource.Dispose();
@@ -118,8 +127,6 @@ public class MarkerDetectionRenderer : MonoBehaviour
 
             detectionClient = null;
         }
-
-        TerrainEvents.OnHeightmapChanged -= HandleTerrainHeightmapChanged;
 
         if (markerManager != null)
             markerManager.ClearAll();
@@ -141,7 +148,7 @@ public class MarkerDetectionRenderer : MonoBehaviour
             detectionClient.TrySend(
                 sourceTexture,
                 sendInterval,
-                debugMode
+                debugMode == DebugMode.SingleImage
                     ? MarkerDetectionWebSocketClient.DetectionPayloadType.Detect
                     : MarkerDetectionWebSocketClient.DetectionPayloadType.DetectUnity);
     }
@@ -181,7 +188,7 @@ public class MarkerDetectionRenderer : MonoBehaviour
         missingTerrainLogged = false;
 
         MarkerTerrainMapper terrainMapper = CreateTerrainMapper();
-        if (showDebugBounds || debugMode)
+        if (showDebugBounds || debugMode != DebugMode.None)
         {
             markerManager.BeginDebugMarkerRefresh();
             SpawnDebugBounds(terrainMapper);
@@ -263,8 +270,7 @@ public class MarkerDetectionRenderer : MonoBehaviour
                     markerScale,
                     detection,
                     GetConstructionPrefab(constructionAssignment),
-                    removeColorWhenUsingPrefab,
-                    wallGroundMaxValidSurfaceY);
+                    removeColorWhenUsingPrefab);
                 continue;
             }
 
@@ -274,8 +280,7 @@ public class MarkerDetectionRenderer : MonoBehaviour
                 markerScale,
                 detection,
                 null,
-                removeColorWhenUsingPrefab,
-                wallGroundMaxValidSurfaceY);
+                removeColorWhenUsingPrefab);
         }
 
         if (constructionManager != null)
@@ -311,25 +316,15 @@ public class MarkerDetectionRenderer : MonoBehaviour
     {
         groundedPosition = worldPosition;
 
-        float groundedSurfaceY;
-        MarkerManager.ResolveGroundedCubePosition(
-            markerParent,
-            worldPosition,
-            markerScale,
-            out groundedSurfaceY);
-
-        if (!IsValidWallGroundSurfaceY(groundedSurfaceY, worldPosition.y))
+        if (terrain == null)
             return false;
 
-        groundedPosition = new Vector3(worldPosition.x, groundedSurfaceY, worldPosition.z);
-        return true;
-    }
+        float surfaceY = terrain.SampleHeight(worldPosition) + terrain.GetPosition().y;
+        if (float.IsNaN(surfaceY) || float.IsInfinity(surfaceY))
+            return false;
 
-    bool IsValidWallGroundSurfaceY(float surfaceY, float referenceY)
-    {
-        return !float.IsNaN(surfaceY)
-            && !float.IsInfinity(surfaceY)
-            && surfaceY - referenceY <= wallGroundMaxValidSurfaceY;
+        groundedPosition = new Vector3(worldPosition.x, surfaceY, worldPosition.z);
+        return true;
     }
 
     void SpawnDebugBounds(MarkerTerrainMapper terrainMapper)
@@ -468,7 +463,15 @@ public class MarkerDetectionRenderer : MonoBehaviour
             frameTextureSource.PumpLatestFrame(filterMode, OnSourceTextureUpdated);
     }
 
-    void PumpDebugTexture()
+    void PumpMockServerTexture()
+    {
+        if (mockServerDummyTexture == null)
+            mockServerDummyTexture = new Texture2D(1, 1);
+
+        OnSourceTextureUpdated(mockServerDummyTexture);
+    }
+
+    void PumpSingleImageTexture()
     {
         Texture2D debugTexture = MarkerDebugImageStore.SourceTexture;
         int debugTextureVersion = MarkerDebugImageStore.Version;
@@ -521,11 +524,6 @@ public class MarkerDetectionRenderer : MonoBehaviour
         }
 
         outOfBoundsConversionCount = 0;
-    }
-
-    void HandleTerrainHeightmapChanged()
-    {
-        detectionsDirty = true;
     }
 
     static string GetDetectionLabel(MarkerDetection detection)

@@ -148,9 +148,14 @@ public sealed class MarkerConstructionManager
         Vector3 wallLengthDirection = wallDirection.normalized;
         Vector3 wallCenter = Vector3.Lerp(leveledStart, leveledEnd, 0.5f);
 
+        bool invertY = wallSettings != null && wallSettings.invertY;
+        Vector3 segmentPosition = invertY
+            ? new Vector3(wallCenter.x, wallCenter.y - wallHeight, wallCenter.z)
+            : wallCenter;
+
         segment.name = string.Format("Construction_{0}_Wall_{1}", displayName, segmentIndex);
         segment.transform.SetParent(markerParent, false);
-        segment.transform.position = wallCenter;
+        segment.transform.position = segmentPosition;
         segment.transform.rotation = Quaternion.LookRotation(wallLengthDirection, Vector3.up);
         SetWorldScale(segment.transform, markerParent, new Vector3(wallThickness, wallHeight, wallLength));
     }
