@@ -63,6 +63,8 @@ The Unity scripts live in `unity/` (symlinked from the Sandbox Marker Unity proj
 
 Add `MarkerDetectionRenderer` to any GameObject in your scene.
 
+Set its script execution order to a negative value (e.g. `-10`) so it runs before default scripts each frame. In Unity: **Edit → Project Settings → Script Execution Order**, click **+**, add `MarkerDetectionRenderer`, and set the value to `-10`.
+
 ### 2. Select a source
 
 Set the **Debug Mode** field to choose how the renderer receives images:
